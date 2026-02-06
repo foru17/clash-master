@@ -1,48 +1,60 @@
 # Dependencies
 node_modules
 .pnpm-store
+.npm
 
 # Build outputs
-.next
 dist
-*.tsbuildinfo
+.next
+.turbo
+out
+build
 
-# Development
+# Development files
 .git
 .gitignore
-.env.local
-.env.*.local
-*.log
-
-# IDE
+.github
 .vscode
 .idea
-*.swp
-*.swo
+*.log
+*.md
+!README.md
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Testing
+# Test files
+**/*.test.js
+**/*.test.ts
+**/*.spec.js
+**/*.spec.ts
+__tests__
 coverage
 .nyc_output
 
+# Environment & Config
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
 # Docker
-docker-compose.override.yml
-Dockerfile
+Dockerfile*
+docker-compose*.yml
+compose.yml
 .dockerignore
 
-# Documentation (keep minimal)
-README.md
+# Documentation
+docs
 *.md
+LICENSE
 
-# Data (will be mounted as volume)
+# Data & Logs
 data
+logs
+*.log
+*.sqlite
 *.db
-*.db-journal
-
-# Temporary files
-tmp
-temp
-*.tmp
