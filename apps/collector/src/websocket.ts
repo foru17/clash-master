@@ -120,6 +120,19 @@ export class StatsWebSocketServer {
     };
   }
 
+  private buildStatsMessage(stats: StatsSummary, timestamp = new Date().toISOString()): string {
+    const message: WebSocketMessage = {
+      type: 'stats',
+      data: stats,
+      timestamp
+    };
+    return JSON.stringify(message);
+  }
+
+  private getBackendCacheKey(backendId: number | null): string {
+    return backendId === null ? 'active' : `backend:${backendId}`;
+  }
+
   private async sendStatsToClient(ws: WebSocket) {
     if (ws.readyState !== WebSocket.OPEN) return;
     
@@ -137,12 +150,7 @@ export class StatsWebSocketServer {
         return;
       }
       
-      const message: WebSocketMessage = {
-        type: 'stats',
-        data: stats,
-        timestamp: new Date().toISOString()
-      };
-      ws.send(JSON.stringify(message));
+      ws.send(this.buildStatsMessage(stats));
     } catch (err) {
       console.error('[WebSocket] Error sending stats:', err);
     }
@@ -163,20 +171,33 @@ export class StatsWebSocketServer {
 
     try {
       let sentCount = 0;
+      const messageCache = new Map<string, string | null>();
+      const statsCache = new Map<string, StatsSummary | null>();
+      const broadcastTimestamp = new Date().toISOString();
       
       // Send stats to each client based on their subscribed backend
       for (const [ws, clientInfo] of this.clients) {
-        if (ws.readyState === WebSocket.OPEN) {
-          const stats = this.getStatsForBackend(clientInfo.backendId);
-          if (stats) {
-            const message: WebSocketMessage = {
-              type: 'stats',
-              data: stats,
-              timestamp: new Date().toISOString()
-            };
-            ws.send(JSON.stringify(message));
-            sentCount++;
+        if (ws.readyState !== WebSocket.OPEN) {
+          continue;
+        }
+
+        const cacheKey = this.getBackendCacheKey(clientInfo.backendId);
+        let serialized = messageCache.get(cacheKey);
+
+        if (serialized === undefined) {
+          let stats = statsCache.get(cacheKey);
+          if (stats === undefined) {
+            stats = this.getStatsForBackend(clientInfo.backendId);
+            statsCache.set(cacheKey, stats);
           }
+
+          serialized = stats ? this.buildStatsMessage(stats, broadcastTimestamp) : null;
+          messageCache.set(cacheKey, serialized);
+        }
+
+        if (serialized) {
+          ws.send(serialized);
+          sentCount++;
         }
       }
 

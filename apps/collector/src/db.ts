@@ -24,14 +24,39 @@ export interface BackendConfig {
   updated_at: string;
 }
 
+interface NormalizedTrafficUpdate {
+  backendId: number;
+  domain: string;
+  ip: string;
+  chain: string;
+  rule: string;
+  finalProxy: string;
+  upload: number;
+  download: number;
+  timestamp: string;
+  hour: string;
+  mapRule?: string;
+  mapProxy?: string;
+}
+
 export class StatsDatabase {
   private db: Database.Database;
   private dbPath: string;
+  private domainUpsertStmt!: Database.Statement;
+  private ipUpsertStmt!: Database.Statement;
+  private proxyUpsertStmt!: Database.Statement;
+  private ruleUpsertStmt!: Database.Statement;
+  private ruleProxyInsertStmt!: Database.Statement;
+  private hourlyUpsertStmt!: Database.Statement;
+  private connectionLogInsertStmt!: Database.Statement;
+  private writeTrafficTx!: (payload: NormalizedTrafficUpdate) => void;
+  private writeTrafficBatchTx!: (payloads: NormalizedTrafficUpdate[]) => void;
 
   constructor(dbPath = 'stats.db') {
     this.dbPath = path.resolve(dbPath);
     this.db = new Database(this.dbPath);
     this.init();
+    this.prepareTrafficStatements();
   }
 
   private init() {
@@ -216,6 +241,193 @@ export class StatsDatabase {
 
     // Migrate existing data if needed (from single-backend schema)
     this.migrateIfNeeded();
+  }
+
+  private prepareTrafficStatements() {
+    this.domainUpsertStmt = this.db.prepare(`
+      INSERT INTO domain_stats (backend_id, domain, ips, total_upload, total_download, total_connections, last_seen, rules, chains)
+      VALUES (@backendId, @domain, @ip, @upload, @download, 1, @timestamp, @rule, @chain)
+      ON CONFLICT(backend_id, domain) DO UPDATE SET
+        ips = CASE
+          WHEN domain_stats.ips IS NULL THEN @ip
+          WHEN INSTR(domain_stats.ips, @ip) > 0 THEN domain_stats.ips
+          ELSE domain_stats.ips || ',' || @ip
+        END,
+        total_upload = total_upload + @upload,
+        total_download = total_download + @download,
+        total_connections = total_connections + 1,
+        last_seen = @timestamp,
+        rules = CASE
+          WHEN domain_stats.rules IS NULL THEN @rule
+          WHEN INSTR(domain_stats.rules, @rule) > 0 THEN domain_stats.rules
+          ELSE domain_stats.rules || ',' || @rule
+        END,
+        chains = CASE
+          WHEN domain_stats.chains IS NULL THEN @chain
+          WHEN INSTR(domain_stats.chains, @chain) > 0 THEN domain_stats.chains
+          ELSE domain_stats.chains || ',' || @chain
+        END
+    `);
+
+    this.ipUpsertStmt = this.db.prepare(`
+      INSERT INTO ip_stats (backend_id, ip, domains, total_upload, total_download, total_connections, last_seen)
+      VALUES (@backendId, @ip, @domain, @upload, @download, 1, @timestamp)
+      ON CONFLICT(backend_id, ip) DO UPDATE SET
+        domains = CASE
+          WHEN ip_stats.domains IS NULL THEN @domain
+          WHEN INSTR(ip_stats.domains, @domain) > 0 THEN ip_stats.domains
+          ELSE ip_stats.domains || ',' || @domain
+        END,
+        total_upload = total_upload + @upload,
+        total_download = total_download + @download,
+        total_connections = total_connections + 1,
+        last_seen = @timestamp
+    `);
+
+    this.proxyUpsertStmt = this.db.prepare(`
+      INSERT INTO proxy_stats (backend_id, chain, total_upload, total_download, total_connections, last_seen)
+      VALUES (@backendId, @chain, @upload, @download, 1, @timestamp)
+      ON CONFLICT(backend_id, chain) DO UPDATE SET
+        total_upload = total_upload + @upload,
+        total_download = total_download + @download,
+        total_connections = total_connections + 1,
+        last_seen = @timestamp
+    `);
+
+    this.ruleUpsertStmt = this.db.prepare(`
+      INSERT INTO rule_stats (backend_id, rule, final_proxy, total_upload, total_download, total_connections, last_seen)
+      VALUES (@backendId, @rule, @finalProxy, @upload, @download, 1, @timestamp)
+      ON CONFLICT(backend_id, rule) DO UPDATE SET
+        final_proxy = @finalProxy,
+        total_upload = total_upload + @upload,
+        total_download = total_download + @download,
+        total_connections = total_connections + 1,
+        last_seen = @timestamp
+    `);
+
+    this.ruleProxyInsertStmt = this.db.prepare(`
+      INSERT OR IGNORE INTO rule_proxy_map (backend_id, rule, proxy)
+      VALUES (@backendId, @rule, @proxy)
+    `);
+
+    this.hourlyUpsertStmt = this.db.prepare(`
+      INSERT INTO hourly_stats (backend_id, hour, upload, download, connections)
+      VALUES (@backendId, @hour, @upload, @download, 1)
+      ON CONFLICT(backend_id, hour) DO UPDATE SET
+        upload = upload + @upload,
+        download = download + @download,
+        connections = connections + 1
+    `);
+
+    this.connectionLogInsertStmt = this.db.prepare(`
+      INSERT INTO connection_logs (backend_id, domain, ip, chain, upload, download)
+      VALUES (@backendId, @domain, @ip, @chain, @upload, @download)
+    `);
+
+    this.writeTrafficTx = this.db.transaction((payload: NormalizedTrafficUpdate) => {
+      this.applyTrafficUpdate(payload);
+    });
+
+    this.writeTrafficBatchTx = this.db.transaction((payloads: NormalizedTrafficUpdate[]) => {
+      for (const payload of payloads) {
+        this.applyTrafficUpdate(payload);
+      }
+    });
+  }
+
+  private buildTrafficPayload(
+    backendId: number,
+    update: TrafficUpdate,
+    timestamp: string,
+    hour: string
+  ): NormalizedTrafficUpdate | null {
+    if (update.upload === 0 && update.download === 0) {
+      return null;
+    }
+
+    const rule = update.chains.length > 0 ? update.chains[update.chains.length - 1] : 'DIRECT';
+    const finalProxy = update.chains.length > 0 ? update.chains[0] : 'DIRECT';
+    const hasRuleProxy = update.chains.length > 1;
+
+    return {
+      backendId,
+      domain: update.domain || 'unknown',
+      ip: update.ip,
+      chain: update.chain || finalProxy,
+      rule,
+      finalProxy,
+      upload: update.upload,
+      download: update.download,
+      timestamp,
+      hour,
+      mapRule: hasRuleProxy ? update.chains[update.chains.length - 1] : undefined,
+      mapProxy: hasRuleProxy ? update.chains[0] : undefined,
+    };
+  }
+
+  private applyTrafficUpdate(payload: NormalizedTrafficUpdate) {
+    if (payload.domain !== 'unknown') {
+      this.domainUpsertStmt.run({
+        backendId: payload.backendId,
+        domain: payload.domain,
+        ip: payload.ip,
+        upload: payload.upload,
+        download: payload.download,
+        timestamp: payload.timestamp,
+        rule: payload.rule,
+        chain: payload.chain,
+      });
+    }
+
+    this.ipUpsertStmt.run({
+      backendId: payload.backendId,
+      ip: payload.ip,
+      domain: payload.domain,
+      upload: payload.upload,
+      download: payload.download,
+      timestamp: payload.timestamp,
+    });
+
+    this.proxyUpsertStmt.run({
+      backendId: payload.backendId,
+      chain: payload.chain,
+      upload: payload.upload,
+      download: payload.download,
+      timestamp: payload.timestamp,
+    });
+
+    this.ruleUpsertStmt.run({
+      backendId: payload.backendId,
+      rule: payload.rule,
+      finalProxy: payload.finalProxy,
+      upload: payload.upload,
+      download: payload.download,
+      timestamp: payload.timestamp,
+    });
+
+    if (payload.mapRule && payload.mapProxy) {
+      this.ruleProxyInsertStmt.run({
+        backendId: payload.backendId,
+        rule: payload.mapRule,
+        proxy: payload.mapProxy,
+      });
+    }
+
+    this.hourlyUpsertStmt.run({
+      backendId: payload.backendId,
+      hour: payload.hour,
+      upload: payload.upload,
+      download: payload.download,
+    });
+
+    this.connectionLogInsertStmt.run({
+      backendId: payload.backendId,
+      domain: payload.domain,
+      ip: payload.ip,
+      chain: payload.chain,
+      upload: payload.upload,
+      download: payload.download,
+    });
   }
 
   // Migrate from old single-backend schema to multi-backend schema
@@ -458,157 +670,38 @@ export class StatsDatabase {
 
   // Update traffic stats with delta values for a specific backend
   updateTrafficStats(backendId: number, update: TrafficUpdate) {
-    const now = new Date();
-    const timestamp = now.toISOString();
+    const timestamp = new Date().toISOString();
     const hour = timestamp.slice(0, 13) + ':00:00';
-    
-    // Only process if there's actual traffic
-    if (update.upload === 0 && update.download === 0) return;
+    const payload = this.buildTrafficPayload(backendId, update, timestamp, hour);
+    if (!payload) {
+      return;
+    }
 
-    // Get the initial rule (last element in chains array) and final proxy (first element)
-    const initialRule = update.chains.length > 0 ? update.chains[update.chains.length - 1] : 'DIRECT';
-    const finalProxy = update.chains.length > 0 ? update.chains[0] : 'DIRECT';
+    this.writeTrafficTx(payload);
+  }
 
-    const transaction = this.db.transaction(() => {
-      // Update domain stats with backend_id (skip if domain is unknown)
-      const domainName = update.domain || 'unknown';
-      if (domainName !== 'unknown') {
-        const domainStmt = this.db.prepare(`
-          INSERT INTO domain_stats (backend_id, domain, ips, total_upload, total_download, total_connections, last_seen, rules, chains)
-          VALUES (@backendId, @domain, @ip, @upload, @download, 1, @timestamp, @rule, @chain)
-          ON CONFLICT(backend_id, domain) DO UPDATE SET
-            ips = CASE 
-              WHEN domain_stats.ips IS NULL THEN @ip
-              WHEN INSTR(domain_stats.ips, @ip) > 0 THEN domain_stats.ips
-              ELSE domain_stats.ips || ',' || @ip
-            END,
-            total_upload = total_upload + @upload,
-            total_download = total_download + @download,
-            total_connections = total_connections + 1,
-            last_seen = @timestamp,
-            rules = CASE 
-              WHEN domain_stats.rules IS NULL THEN @rule
-              WHEN INSTR(domain_stats.rules, @rule) > 0 THEN domain_stats.rules
-              ELSE domain_stats.rules || ',' || @rule
-            END,
-            chains = CASE 
-              WHEN domain_stats.chains IS NULL THEN @chain
-              WHEN INSTR(domain_stats.chains, @chain) > 0 THEN domain_stats.chains
-              ELSE domain_stats.chains || ',' || @chain
-            END
-        `);
-        domainStmt.run({
-          backendId,
-          domain: domainName,
-          ip: update.ip,
-          upload: update.upload,
-          download: update.download,
-          timestamp,
-          rule: initialRule,
-          chain: update.chain
-        });
+  // Batch write traffic updates in one transaction for high-frequency websocket frames
+  updateTrafficStatsBatch(backendId: number, updates: TrafficUpdate[]) {
+    if (updates.length === 0) {
+      return;
+    }
+
+    const timestamp = new Date().toISOString();
+    const hour = timestamp.slice(0, 13) + ':00:00';
+    const payloads: NormalizedTrafficUpdate[] = [];
+
+    for (const update of updates) {
+      const payload = this.buildTrafficPayload(backendId, update, timestamp, hour);
+      if (payload) {
+        payloads.push(payload);
       }
+    }
 
-      // Update IP stats with backend_id
-      const ipStmt = this.db.prepare(`
-        INSERT INTO ip_stats (backend_id, ip, domains, total_upload, total_download, total_connections, last_seen)
-        VALUES (@backendId, @ip, @domain, @upload, @download, 1, @timestamp)
-        ON CONFLICT(backend_id, ip) DO UPDATE SET
-          domains = CASE 
-            WHEN ip_stats.domains IS NULL THEN @domain
-            WHEN INSTR(ip_stats.domains, @domain) > 0 THEN ip_stats.domains
-            ELSE ip_stats.domains || ',' || @domain
-          END,
-          total_upload = total_upload + @upload,
-          total_download = total_download + @download,
-          total_connections = total_connections + 1,
-          last_seen = @timestamp
-      `);
-      ipStmt.run({
-        backendId,
-        ip: update.ip,
-        domain: update.domain || 'unknown',
-        upload: update.upload,
-        download: update.download,
-        timestamp
-      });
+    if (payloads.length === 0) {
+      return;
+    }
 
-      // Update proxy stats with backend_id
-      const proxyStmt = this.db.prepare(`
-        INSERT INTO proxy_stats (backend_id, chain, total_upload, total_download, total_connections, last_seen)
-        VALUES (@backendId, @chain, @upload, @download, 1, @timestamp)
-        ON CONFLICT(backend_id, chain) DO UPDATE SET
-          total_upload = total_upload + @upload,
-          total_download = total_download + @download,
-          total_connections = total_connections + 1,
-          last_seen = @timestamp
-      `);
-      proxyStmt.run({
-        backendId,
-        chain: update.chain,
-        upload: update.upload,
-        download: update.download,
-        timestamp
-      });
-
-      // Update rule stats with backend_id
-      const ruleStmt = this.db.prepare(`
-        INSERT INTO rule_stats (backend_id, rule, final_proxy, total_upload, total_download, total_connections, last_seen)
-        VALUES (@backendId, @rule, @finalProxy, @upload, @download, 1, @timestamp)
-        ON CONFLICT(backend_id, rule) DO UPDATE SET
-          final_proxy = @finalProxy,
-          total_upload = total_upload + @upload,
-          total_download = total_download + @download,
-          total_connections = total_connections + 1,
-          last_seen = @timestamp
-      `);
-      ruleStmt.run({
-        backendId,
-        rule: initialRule,
-        finalProxy,
-        upload: update.upload,
-        download: update.download,
-        timestamp
-      });
-
-      // Update rule-proxy mapping with backend_id
-      if (update.chains.length > 1) {
-        const rule = update.chains[update.chains.length - 1];
-        const proxy = update.chains[0];
-        const ruleProxyStmt = this.db.prepare(`
-          INSERT OR IGNORE INTO rule_proxy_map (backend_id, rule, proxy)
-          VALUES (@backendId, @rule, @proxy)
-        `);
-        ruleProxyStmt.run({ backendId, rule, proxy });
-      }
-
-      // Update hourly stats with backend_id
-      const hourlyStmt = this.db.prepare(`
-        INSERT INTO hourly_stats (backend_id, hour, upload, download, connections)
-        VALUES (@backendId, @hour, @upload, @download, 1)
-        ON CONFLICT(backend_id, hour) DO UPDATE SET
-          upload = upload + @upload,
-          download = download + @download,
-          connections = connections + 1
-      `);
-      hourlyStmt.run({ backendId, hour, upload: update.upload, download: update.download });
-
-      // Insert connection log with backend_id
-      const logStmt = this.db.prepare(`
-        INSERT INTO connection_logs (backend_id, domain, ip, chain, upload, download)
-        VALUES (@backendId, @domain, @ip, @chain, @upload, @download)
-      `);
-      logStmt.run({
-        backendId,
-        domain: update.domain || 'unknown',
-        ip: update.ip,
-        chain: update.chain,
-        upload: update.upload,
-        download: update.download
-      });
-    });
-
-    transaction();
+    this.writeTrafficBatchTx(payloads);
   }
 
   // Get all domain stats for a specific backend
@@ -913,24 +1006,27 @@ export class StatsDatabase {
 
   // Get summary stats for a specific backend
   getSummary(backendId: number): { totalConnections: number; totalUpload: number; totalDownload: number; uniqueDomains: number; uniqueIPs: number } {
-    const connectionsStmt = this.db.prepare(`
-      SELECT COUNT(*) as count FROM connection_logs WHERE backend_id = ?
-    `);
-    const totalConnections = (connectionsStmt.get(backendId) as { count: number }).count;
-
     const trafficStmt = this.db.prepare(`
-      SELECT COALESCE(SUM(upload), 0) as upload, COALESCE(SUM(download), 0) as download
-      FROM connection_logs WHERE backend_id = ?
+      SELECT
+        COALESCE(SUM(connections), 0) as totalConnections,
+        COALESCE(SUM(upload), 0) as upload,
+        COALESCE(SUM(download), 0) as download
+      FROM hourly_stats
+      WHERE backend_id = ?
     `);
-    const { upload, download } = trafficStmt.get(backendId) as { upload: number; download: number };
+    const { totalConnections, upload, download } = trafficStmt.get(backendId) as {
+      totalConnections: number;
+      upload: number;
+      download: number;
+    };
 
     const domainsStmt = this.db.prepare(`
-      SELECT COUNT(DISTINCT domain) as count FROM domain_stats WHERE backend_id = ?
+      SELECT COUNT(*) as count FROM domain_stats WHERE backend_id = ?
     `);
     const uniqueDomains = (domainsStmt.get(backendId) as { count: number }).count;
 
     const ipsStmt = this.db.prepare(`
-      SELECT COUNT(DISTINCT ip) as count FROM ip_stats WHERE backend_id = ?
+      SELECT COUNT(*) as count FROM ip_stats WHERE backend_id = ?
     `);
     const uniqueIPs = (ipsStmt.get(backendId) as { count: number }).count;
 
@@ -1221,16 +1317,18 @@ export class StatsDatabase {
 
   // Get total stats across all backends
   getGlobalSummary(): { totalConnections: number; totalUpload: number; totalDownload: number; uniqueDomains: number; uniqueIPs: number; backendCount: number } {
-    const connectionsStmt = this.db.prepare(`
-      SELECT COUNT(*) as count FROM connection_logs
-    `);
-    const totalConnections = (connectionsStmt.get() as { count: number }).count;
-
     const trafficStmt = this.db.prepare(`
-      SELECT COALESCE(SUM(upload), 0) as upload, COALESCE(SUM(download), 0) as download
-      FROM connection_logs
+      SELECT
+        COALESCE(SUM(connections), 0) as totalConnections,
+        COALESCE(SUM(upload), 0) as upload,
+        COALESCE(SUM(download), 0) as download
+      FROM hourly_stats
     `);
-    const { upload, download } = trafficStmt.get() as { upload: number; download: number };
+    const { totalConnections, upload, download } = trafficStmt.get() as {
+      totalConnections: number;
+      upload: number;
+      download: number;
+    };
 
     const domainsStmt = this.db.prepare(`
       SELECT COUNT(DISTINCT domain) as count FROM domain_stats

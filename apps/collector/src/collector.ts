@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import type { ConnectionsData } from '@clashmaster/shared';
 import { StatsDatabase } from './db.js';
-import { GeoIPService } from './geo-service.js';
+import { GeoIPService, type GeoLocation } from './geo-service.js';
 
 interface CollectorOptions {
   url: string;
@@ -106,8 +106,6 @@ interface TrackedConnection {
   chains: string[];
   lastUpload: number;
   lastDownload: number;
-  totalUpload: number;
-  totalDownload: number;
 }
 
 export function createCollector(
@@ -120,9 +118,67 @@ export function createCollector(
 ) {
   const id = backendId || 0;
   const activeConnections = new Map<string, TrackedConnection>();
+  const geoCache = new Map<string, GeoLocation | null>();
+  const pendingGeoLookups = new Map<string, Promise<GeoLocation | null>>();
+  const maxGeoCacheEntries = 5000;
   let lastLogTime = 0;
   let lastBroadcastTime = 0;
   const broadcastThrottleMs = 500;
+
+  const rememberGeo = (ip: string, geo: GeoLocation | null) => {
+    if (geoCache.has(ip)) {
+      geoCache.delete(ip);
+    }
+    geoCache.set(ip, geo);
+
+    if (geoCache.size > maxGeoCacheEntries) {
+      const oldestKey = geoCache.keys().next().value;
+      if (oldestKey) {
+        geoCache.delete(oldestKey);
+      }
+    }
+  };
+
+  const updateCountryTraffic = (ip: string, upload: number, download: number) => {
+    if (!geoService || !ip || (upload === 0 && download === 0)) {
+      return;
+    }
+
+    const cached = geoCache.get(ip);
+    if (cached) {
+      db.updateCountryStats(id, cached.country, cached.country_name, cached.continent, upload, download);
+      return;
+    }
+    if (cached === null) {
+      return;
+    }
+
+    let pending = pendingGeoLookups.get(ip);
+    if (!pending) {
+      pending = geoService
+        .getGeoLocation(ip)
+        .then((geo) => {
+          rememberGeo(ip, geo);
+          return geo;
+        })
+        .catch(() => {
+          rememberGeo(ip, null);
+          return null;
+        })
+        .finally(() => {
+          pendingGeoLookups.delete(ip);
+        });
+      pendingGeoLookups.set(ip, pending);
+    }
+
+    pending.then((geo) => {
+      if (geo) {
+        db.updateCountryStats(id, geo.country, geo.country_name, geo.continent, upload, download);
+      }
+    }).catch(() => {
+      // Ignore geo lookup failures
+    });
+  };
 
   return new OpenClashCollector(id, {
     url,
@@ -147,6 +203,15 @@ export function createCollector(
       
       const now = Date.now();
       const currentIds = new Set(data.connections.map(c => c?.id).filter(Boolean));
+      const trafficUpdates: Array<{
+        domain: string;
+        ip: string;
+        chain: string;
+        chains: string[];
+        upload: number;
+        download: number;
+      }> = [];
+      const countryUpdates: Array<{ ip: string; upload: number; download: number }> = [];
       let hasNewTraffic = false;
       
       // Process all current connections
@@ -176,15 +241,13 @@ export function createCollector(
             domain,
             ip,
             chains,
-            lastUpload: 0,
-            lastDownload: 0,
-            totalUpload: conn.upload,
-            totalDownload: conn.download,
+            lastUpload: conn.upload,
+            lastDownload: conn.download,
           });
           
           // Record initial traffic for new connection
           if (conn.upload > 0 || conn.download > 0) {
-            db.updateTrafficStats(id, {
+            trafficUpdates.push({
               domain,
               ip,
               chain: chains[0] || 'DIRECT',
@@ -192,39 +255,27 @@ export function createCollector(
               upload: conn.upload,
               download: conn.download,
             });
-
-            // Query and update country stats if GeoIP service is available
-            if (geoService && ip) {
-              geoService.getGeoLocation(ip).then((geo: { country: string; country_name: string; continent: string } | null) => {
-                if (geo) {
-                  db.updateCountryStats(
-                    id,
-                    geo.country,
-                    geo.country_name,
-                    geo.continent,
-                    conn.upload,
-                    conn.download
-                  );
-                }
-              }).catch((err: Error) => {
-                // Silently fail for GeoIP errors
-              });
-            }
-            
+            countryUpdates.push({ ip, upload: conn.upload, download: conn.download });
             hasNewTraffic = true;
           }
         } else {
+          // Keep latest metadata for long-lived connections
+          if (domain) {
+            existing.domain = domain;
+          }
+          if (ip) {
+            existing.ip = ip;
+          }
+          if (chains.length > 0) {
+            existing.chains = chains;
+          }
+
           // Existing connection - calculate delta and update stats
           const uploadDelta = Math.max(0, conn.upload - existing.lastUpload);
           const downloadDelta = Math.max(0, conn.download - existing.lastDownload);
           
           if (uploadDelta > 0 || downloadDelta > 0) {
-            // Update accumulated traffic for this connection
-            existing.totalUpload += uploadDelta;
-            existing.totalDownload += downloadDelta;
-            
-            // Update stats in database with delta
-            db.updateTrafficStats(id, {
+            trafficUpdates.push({
               domain: existing.domain,
               ip: existing.ip,
               chain: existing.chains[0] || 'DIRECT',
@@ -232,24 +283,7 @@ export function createCollector(
               upload: uploadDelta,
               download: downloadDelta,
             });
-
-            // Query and update country stats if GeoIP service is available
-            if (geoService && existing.ip) {
-              geoService.getGeoLocation(existing.ip).then((geo: { country: string; country_name: string; continent: string } | null) => {
-                if (geo) {
-                  db.updateCountryStats(
-                    id,
-                    geo.country,
-                    geo.country_name,
-                    geo.continent,
-                    uploadDelta,
-                    downloadDelta
-                  );
-                }
-              }).catch((err: Error) => {
-                // Silently fail for GeoIP errors
-              });
-            }
+            countryUpdates.push({ ip: existing.ip, upload: uploadDelta, download: downloadDelta });
             
             existing.lastUpload = conn.upload;
             existing.lastDownload = conn.download;
@@ -257,9 +291,16 @@ export function createCollector(
           }
         }
       }
+
+      if (trafficUpdates.length > 0) {
+        db.updateTrafficStatsBatch(id, trafficUpdates);
+        for (const update of countryUpdates) {
+          updateCountryTraffic(update.ip, update.upload, update.download);
+        }
+      }
       
       // Find closed connections and flush their remaining traffic
-      for (const [connId, tracked] of activeConnections) {
+      for (const [connId] of activeConnections) {
         if (!currentIds.has(connId)) {
           // Connection closed - any remaining traffic was already counted
           activeConnections.delete(connId);

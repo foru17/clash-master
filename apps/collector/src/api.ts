@@ -21,12 +21,30 @@ export class APIServer {
       credentials: true
     });
 
+    const parseOptionalPositiveInt = (value: unknown): number | null => {
+      if (value === undefined || value === null || value === '') {
+        return null;
+      }
+      const parsed = Number.parseInt(String(value), 10);
+      if (!Number.isFinite(parsed) || Number.isNaN(parsed) || parsed <= 0) {
+        return null;
+      }
+      return parsed;
+    };
+
+    const parseBoundedInt = (value: unknown, fallback: number, min: number, max: number): number => {
+      const parsed = Number.parseInt(String(value), 10);
+      if (!Number.isFinite(parsed) || Number.isNaN(parsed)) {
+        return fallback;
+      }
+      return Math.min(max, Math.max(min, parsed));
+    };
+
     // Helper to get backend ID from query or use active backend
     const getBackendId = (request: any): number | null => {
       const { backendId } = request.query as { backendId?: string };
-      if (backendId) {
-        const id = parseInt(backendId);
-        return isNaN(id) ? null : id;
+      if (backendId !== undefined) {
+        return parseOptionalPositiveInt(backendId);
       }
       // If no backendId specified, use the active backend
       const activeBackend = this.db.getActiveBackend();
@@ -49,9 +67,12 @@ export class APIServer {
         return reply.status(404).send({ error: 'Backend not found' });
       }
 
+      const { topLimit = '1000' } = request.query as { topLimit?: string };
+      const safeTopLimit = parseBoundedInt(topLimit, 1000, 10, 5000);
+
       const summary = this.db.getSummary(backendId);
-      const topDomains = this.db.getTopDomains(backendId, 1000);
-      const topIPs = this.db.getTopIPs(backendId, 1000);
+      const topDomains = this.db.getTopDomains(backendId, safeTopLimit);
+      const topIPs = this.db.getTopIPs(backendId, safeTopLimit);
       const proxyStats = this.db.getProxyStats(backendId);
       const ruleStats = this.db.getRuleStats(backendId);
       const hourlyStats = this.db.getHourlyStats(backendId, 24);
@@ -95,7 +116,7 @@ export class APIServer {
       }
 
       const { limit = 50 } = request.query as { limit?: string };
-      return this.db.getDomainStats(backendId, parseInt(limit as string) || 50);
+      return this.db.getDomainStats(backendId, parseBoundedInt(limit, 50, 1, 5000));
     });
 
     // Get IP statistics for a specific backend
@@ -107,7 +128,7 @@ export class APIServer {
       }
 
       const { limit = 50 } = request.query as { limit?: string };
-      return this.db.getIPStats(backendId, parseInt(limit as string) || 50);
+      return this.db.getIPStats(backendId, parseBoundedInt(limit, 50, 1, 5000));
     });
 
     // Get proxy/chain statistics for a specific backend
@@ -163,7 +184,7 @@ export class APIServer {
       }
 
       const { hours = 24 } = request.query as { hours?: string };
-      return this.db.getHourlyStats(backendId, parseInt(hours as string) || 24);
+      return this.db.getHourlyStats(backendId, parseBoundedInt(hours, 24, 1, 24 * 14));
     });
 
     // Get traffic trend for a specific backend (for time range selection)
@@ -175,7 +196,7 @@ export class APIServer {
       }
 
       const { minutes = 30 } = request.query as { minutes?: string };
-      return this.db.getTrafficTrend(backendId, parseInt(minutes as string) || 30);
+      return this.db.getTrafficTrend(backendId, parseBoundedInt(minutes, 30, 1, 24 * 60));
     });
 
     // Get traffic trend aggregated by time buckets for chart display
@@ -189,8 +210,8 @@ export class APIServer {
       const { minutes = 30, bucketMinutes = 1 } = request.query as { minutes?: string; bucketMinutes?: string };
       return this.db.getTrafficTrendAggregated(
         backendId,
-        parseInt(minutes as string) || 30,
-        parseInt(bucketMinutes as string) || 1
+        parseBoundedInt(minutes, 30, 1, 24 * 60),
+        parseBoundedInt(bucketMinutes, 1, 1, 60)
       );
     });
 
@@ -203,7 +224,7 @@ export class APIServer {
       }
 
       const { limit = 100 } = request.query as { limit?: string };
-      return this.db.getRecentConnections(backendId, parseInt(limit as string) || 100);
+      return this.db.getRecentConnections(backendId, parseBoundedInt(limit, 100, 1, 5000));
     });
 
     // Backend management APIs
