@@ -52,6 +52,7 @@ cd /app/apps/web/.next/standalone/apps/web && \
   HOSTNAME=0.0.0.0 \
   NODE_ENV=production \
   PORT="${WEB_PORT}" \
+  API_URL="http://127.0.0.1:${API_PORT}" \
   node server.js &
 WEB_PID=$!
 
