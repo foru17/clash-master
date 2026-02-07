@@ -19,7 +19,7 @@ services:
       # 告诉前端浏览器应该连接哪个 WebSocket 端口
       - NEXT_PUBLIC_WS_PORT=${WS_EXTERNAL_PORT:-3002}
       - DB_PATH=/app/data/stats.db
-    networks:Open Source Project
+    networks:
       - clash-master-network
     # 健康检查
     healthcheck:
