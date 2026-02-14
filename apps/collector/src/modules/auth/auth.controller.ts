@@ -47,8 +47,7 @@ export async function authController(app: FastifyInstance) {
       const isProduction = process.env.NODE_ENV === 'production';
       reply.setCookie('neko-session', token, {
         path: '/',
-        httpOnly: true,
-        secure: isProduction, // Only use secure in production
+        httpOnly: true, 
         sameSite: 'strict',
         maxAge: 60 * 60 * 24 * 7, // 7 days
       });
