@@ -6,6 +6,7 @@
  */
 import type Database from 'better-sqlite3';
 import { BaseRepository } from './base.repository.js';
+import { buildRuleName } from '../../shared/utils/rule-name.js';
 
 export interface TrafficUpdate {
   domain: string;
@@ -147,8 +148,7 @@ export class TrafficWriterRepository extends BaseRepository {
 
     if (update.upload === 0 && update.download === 0) return;
 
-    const ruleName = update.chains.length > 1 ? update.chains[update.chains.length - 1] :
-                     update.rulePayload ? `${update.rule}(${update.rulePayload})` : update.rule;
+    const ruleName = buildRuleName(update);
     const finalProxy = update.chains.length > 0 ? update.chains[0] : 'DIRECT';
     const fullChain = update.chains.join(' > ') || update.chain || 'DIRECT';
     const s = this.singleStmts;
@@ -171,7 +171,7 @@ export class TrafficWriterRepository extends BaseRepository {
       s.ruleIpUpsert.run({ backendId, rule: ruleName, ip: update.ip, upload: update.upload, download: update.download, timestamp });
 
       if (update.chains.length > 1) {
-        s.ruleProxyInsert.run({ backendId, rule: update.chains[update.chains.length - 1], proxy: update.chains[0] });
+        s.ruleProxyInsert.run({ backendId, rule: ruleName, proxy: update.chains[0] });
       }
 
       s.hourlyUpsert.run({ backendId, hour, upload: update.upload, download: update.download });
@@ -238,8 +238,7 @@ export class TrafficWriterRepository extends BaseRepository {
       if (update.upload === 0 && update.download === 0) continue;
       const connections = this.normalizeConnections(update.connections);
 
-      const ruleName = update.chains.length > 1 ? update.chains[update.chains.length - 1] :
-                       update.rulePayload ? `${update.rule}(${update.rulePayload})` : update.rule;
+      const ruleName = buildRuleName(update);
       const finalProxy = update.chains.length > 0 ? update.chains[0] : 'DIRECT';
       const fullChain = update.chains.join(' > ') || update.chain || 'DIRECT';
       const { hourKey, minuteKey } = getTimeKeys(update.timestampMs ?? now.getTime());
@@ -532,7 +531,7 @@ export class TrafficWriterRepository extends BaseRepository {
           chains = CASE WHEN domain_stats.chains IS NULL THEN @chain WHEN LENGTH(domain_stats.chains) > 4000 THEN domain_stats.chains WHEN INSTR(domain_stats.chains, @chain) > 0 THEN domain_stats.chains ELSE domain_stats.chains || ',' || @chain END
       `);
       for (const [, data] of domainMap) {
-        const ruleName = data.chains.length > 1 ? data.chains[data.chains.length - 1] : data.rulePayload ? `${data.rule}(${data.rulePayload})` : data.rule;
+        const ruleName = buildRuleName(data);
         const fullChain = data.chains.join(' > ');
         domainStmt.run({ backendId, domain: data.domain, ip: data.ip, upload: data.upload, download: data.download, count: data.count, timestamp, rule: ruleName, chain: fullChain });
       }

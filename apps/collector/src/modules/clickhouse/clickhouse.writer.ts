@@ -1,5 +1,6 @@
 import type { TrafficUpdate } from '../collector/batch-buffer.js';
 import { loadClickHouseConfig } from './clickhouse.config.js';
+import { buildRuleName } from '../../shared/utils/rule-name.js';
 
 interface CountryMinuteUpdate {
   country: string;
@@ -89,12 +90,7 @@ export class ClickHouseWriter {
       ip: item.ip || '',
       source_ip: item.sourceIP || '',
       chain: item.chains.join(' > ') || item.chain || 'DIRECT',
-      rule:
-        item.chains.length > 1
-          ? item.chains[item.chains.length - 1]
-          : item.rulePayload
-            ? `${item.rule}(${item.rulePayload})`
-            : item.rule,
+      rule: buildRuleName(item),
       upload: Math.max(0, Math.floor(item.upload)),
       download: Math.max(0, Math.floor(item.download)),
       connections: Math.max(0, Math.floor(item.connections ?? 1)),

@@ -187,7 +187,7 @@ export function InteractiveRuleStats({
     }));
 
     // Append zero-traffic rules from Gateway API, using the target proxy group name
-    // (rule.proxy) which matches how traffic data stores rule names.
+    // (rule.proxy) which matches how traffic data stores rule names for Surge.
     // Multiple low-level rules (RuleSet, ProcessName, etc.) can target the same
     // proxy group, so we deduplicate by proxy group name.
     if (gatewayRules?.rules) {

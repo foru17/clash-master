@@ -10,6 +10,7 @@ import {
   getClickHouseWriter,
   type TrafficWriteOutcome,
 } from "../clickhouse/clickhouse.writer.js";
+import { buildRuleName } from "../../shared/utils/rule-name.js";
 import { shouldSkipSqliteStatsWrites } from "../stats/stats-write-mode.js";
 
 export interface TrafficUpdate {
@@ -136,11 +137,7 @@ export class BatchBuffer {
 
     for (const update of updates) {
       if (update.domain) domains.add(update.domain);
-      const initialRule =
-        update.chains.length > 0
-          ? update.chains[update.chains.length - 1]
-          : "DIRECT";
-      rules.add(initialRule);
+      rules.add(buildRuleName(update) || "DIRECT");
     }
 
     let trafficOk = true;

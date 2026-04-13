@@ -9,6 +9,7 @@ import type {
   TrafficTrendPoint,
 } from '@neko-master/shared';
 import type { StatsDatabase } from '../db/db.js';
+import { buildRuleName } from '../../shared/utils/rule-name.js';
 
 type SummaryDelta = {
   upload: number;
@@ -364,12 +365,7 @@ export class RealtimeStore {
 
     this.pruneOldBuckets(minuteMap, timestamp);
 
-    const ruleName =
-      meta.chains.length > 1
-        ? meta.chains[meta.chains.length - 1]
-        : meta.rulePayload
-          ? `${meta.rule}(${meta.rulePayload})`
-          : meta.rule;
+    const ruleName = buildRuleName(meta);
     const fullChain = meta.chains.join(' > ');
     const lastSeen = new Date(timestamp).toISOString();
 

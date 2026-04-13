@@ -247,5 +247,56 @@ describe('TrafficWriterRepository', () => {
       const summary = db.getSummary(backendId);
       expect(summary.totalConnections).toBe(1);
     });
+
+    it('should use rule and rulePayload instead of treating the last chain hop as the rule', () => {
+      db.batchUpdateTrafficStats(backendId, [
+        {
+          domain: 'media.example',
+          ip: '8.8.8.8',
+          chain: '香港 01',
+          chains: ['香港 01', '🔯 大流量节点'],
+          rule: 'RULE-SET',
+          rulePayload: 'OpenAI',
+          upload: 120,
+          download: 340,
+          sourceIP: '192.168.1.8',
+          timestampMs: Date.now(),
+        },
+      ]);
+
+      const rules = db.getRuleStats(backendId);
+      expect(rules).toHaveLength(1);
+      expect(rules[0].rule).toBe('RULE-SET(OpenAI)');
+      expect(rules[0].finalProxy).toBe('香港 01');
+
+      const ruleProxyMap = db.getRuleProxyMap(backendId);
+      expect(ruleProxyMap).toHaveLength(1);
+      expect(ruleProxyMap[0]).toEqual({
+        rule: 'RULE-SET(OpenAI)',
+        proxies: ['香港 01'],
+      });
+    });
+
+    it('should preserve Surge rule names when the last chain hop already matches the resolved rule', () => {
+      db.batchUpdateTrafficStats(backendId, [
+        {
+          domain: 'stream.media',
+          ip: '203.0.113.8',
+          chain: 'JP-Sakura',
+          chains: ['JP-Sakura', 'Manual|Select', 'YouTube|Media'],
+          rule: 'YouTube|Media',
+          rulePayload: 'RULE-SET',
+          upload: 88,
+          download: 188,
+          sourceIP: '192.168.1.18',
+          timestampMs: Date.now(),
+        },
+      ]);
+
+      const rules = db.getRuleStats(backendId);
+      expect(rules).toHaveLength(1);
+      expect(rules[0].rule).toBe('YouTube|Media');
+      expect(rules[0].finalProxy).toBe('JP-Sakura');
+    });
   });
 });
