@@ -10,10 +10,20 @@ import { BatchBuffer } from "./batch-buffer.js";
 const STALE_CONNECTION_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 const CLEANUP_INTERVAL = 2 * 60 * 1000; // 2 minutes
 
+// Heartbeat watchdog: detect silently dropped TCP connections (gateway/router
+// restart, NAT timeout) that never surface a WS "error"/"close" event. We ping
+// the backend periodically and track when a frame last arrived; if the link
+// stays silent past the timeout we force-terminate it so the existing
+// reconnect logic kicks in. See issue #74.
+const DEFAULT_HEARTBEAT_INTERVAL = 10_000; // ping + liveness check cadence (ms)
+const DEFAULT_HEARTBEAT_TIMEOUT = 30_000; // terminate after this much silence (ms)
+
 export interface CollectorOptions {
   url: string;
   token?: string;
   reconnectInterval?: number;
+  heartbeatInterval?: number;
+  heartbeatTimeout?: number;
   onData?: (data: ConnectionsData) => void;
   onError?: (error: Error) => void;
 }
@@ -23,9 +33,13 @@ export class GatewayCollector {
   private url: string;
   private token?: string;
   private reconnectInterval: number;
+  private heartbeatInterval: number;
+  private heartbeatTimeout: number;
   private onData?: (data: ConnectionsData) => void;
   private onError?: (error: Error) => void;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+  private lastActivity = 0;
   private isClosing = false;
   private backendId: number;
 
@@ -34,6 +48,16 @@ export class GatewayCollector {
     this.url = options.url;
     this.token = options.token;
     this.reconnectInterval = options.reconnectInterval || 5000;
+    this.heartbeatInterval =
+      options.heartbeatInterval ??
+      parseInt(
+        process.env.WS_HEARTBEAT_INTERVAL_MS || `${DEFAULT_HEARTBEAT_INTERVAL}`,
+      );
+    this.heartbeatTimeout =
+      options.heartbeatTimeout ??
+      parseInt(
+        process.env.WS_HEARTBEAT_TIMEOUT_MS || `${DEFAULT_HEARTBEAT_TIMEOUT}`,
+      );
     this.onData = options.onData;
     this.onError = options.onError;
   }
@@ -60,9 +84,11 @@ export class GatewayCollector {
 
     this.ws.on("open", () => {
       console.log(`[Collector:${this.backendId}] WebSocket connected`);
+      this.startHeartbeat();
     });
 
     this.ws.on("message", (data: WebSocket.Data) => {
+      this.lastActivity = Date.now();
       try {
         const json = JSON.parse(data.toString()) as ConnectionsData;
         this.onData?.(json);
@@ -74,6 +100,10 @@ export class GatewayCollector {
       }
     });
 
+    this.ws.on("pong", () => {
+      this.lastActivity = Date.now();
+    });
+
     this.ws.on("error", (err) => {
       console.error(
         `[Collector:${this.backendId}] WebSocket error:`,
@@ -83,6 +113,7 @@ export class GatewayCollector {
     });
 
     this.ws.on("close", (code, reason) => {
+      this.stopHeartbeat();
       console.log(
         `[Collector:${this.backendId}] WebSocket closed: ${code} ${reason}`,
       );
@@ -90,6 +121,42 @@ export class GatewayCollector {
         this.scheduleReconnect();
       }
     });
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.lastActivity = Date.now();
+    this.heartbeatTimer = setInterval(() => {
+      const ws = this.ws;
+      if (!ws) return;
+
+      const idle = Date.now() - this.lastActivity;
+      if (idle > this.heartbeatTimeout) {
+        console.warn(
+          `[Collector:${this.backendId}] No data for ${idle}ms (timeout ` +
+            `${this.heartbeatTimeout}ms); terminating dead connection`,
+        );
+        // terminate() forces an immediate close with no closing handshake and
+        // emits "close", which runs scheduleReconnect().
+        ws.terminate();
+        return;
+      }
+
+      // Probe liveness; a live peer answers with a pong that refreshes
+      // lastActivity. A half-dead socket stays silent and trips the timeout.
+      try {
+        ws.ping();
+      } catch {
+        // Socket already unusable; the timeout branch will reconnect it.
+      }
+    }, this.heartbeatInterval);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   private scheduleReconnect() {
@@ -105,6 +172,7 @@ export class GatewayCollector {
 
   disconnect() {
     this.isClosing = true;
+    this.stopHeartbeat();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
