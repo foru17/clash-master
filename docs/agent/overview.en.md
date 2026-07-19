@@ -41,12 +41,13 @@ This is ideal for multi-site homes/labs and distributed deployments.
 
 ## Gateway type support
 
-The agent supports two gateway types:
+The agent supports three gateway types:
 
 - `clash` — connects to Clash / Mihomo via WebSocket (`/connections` endpoint); real-time push
 - `surge` — polls Surge HTTP API (`/v1/requests/recent`) every 2 seconds; no WebSocket required
+- `passwall` — collects OpenWrt PassWall 1 traffic locally from conntrack and UCI config; targets luci-app-passwall 25.8.5-1 and does not support PassWall 2
 
-Both types go through the same report pipeline to the panel. Set `--gateway-type` accordingly.
+All types go through the same report pipeline to the panel. Set `--gateway-type` accordingly.
 
 ## Multi-instance support
 

@@ -694,7 +694,7 @@ Quick add with flags (auto-starts by default):
     --server-url <url> \
     --backend-id <id> \
     --backend-token <token> \
-    --gateway-type <clash|surge> \
+    --gateway-type <clash|surge|passwall> \
     --gateway-url <url> \
     [--gateway-token <token>] \
     [--no-start]        # skip auto-start after add
@@ -833,7 +833,7 @@ cmd_add() {
   if [ "$#" -lt 6 ]; then
     err "add requires: <name> --server-url <url> --backend-id <id> --backend-token <token> --gateway-type <type> --gateway-url <url>"
     echo ""
-    echo "Usage: $PROG add <name> --server-url <url> --backend-id <id> --backend-token <token> --gateway-type <clash|surge> --gateway-url <url> [--gateway-token <token>] [--auto-start]"
+    echo "Usage: $PROG add <name> --server-url <url> --backend-id <id> --backend-token <token> --gateway-type <clash|surge|passwall> --gateway-url <url> [--gateway-token <token>] [--auto-start]"
     exit 1
   fi
 

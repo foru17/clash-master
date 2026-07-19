@@ -46,7 +46,7 @@ func Parse(args []string) (Config, error) {
 	backendID := fs.Int("backend-id", 0, "Backend ID configured in Neko Master")
 	backendToken := fs.String("backend-token", "", "Backend token for agent authentication")
 	agentID := fs.String("agent-id", "", "Agent ID (optional, auto-generated from backend-token if not provided)")
-	gatewayType := fs.String("gateway-type", "clash", "Gateway type: clash or surge")
+	gatewayType := fs.String("gateway-type", "clash", "Gateway type: clash, surge, or passwall")
 	gatewayURL := fs.String("gateway-url", "", "Gateway control endpoint URL")
 	gatewayToken := fs.String("gateway-token", "", "Gateway secret token (optional)")
 	logEnabled := fs.Bool("log", true, "Enable runtime logs (set false to disable)")
@@ -80,7 +80,7 @@ func Parse(args []string) (Config, error) {
 	}
 
 	gt := strings.ToLower(strings.TrimSpace(*gatewayType))
-	if gt != "clash" && gt != "surge" {
+	if gt != "clash" && gt != "surge" && gt != "passwall" {
 		return Config{}, fmt.Errorf("invalid gateway-type: %s", *gatewayType)
 	}
 
@@ -128,7 +128,7 @@ func Parse(args []string) (Config, error) {
 func Usage() string {
 	lines := []string{
 		"Usage:",
-		"  neko-agent --server-url <url> --backend-id <id> --backend-token <token> --gateway-type <clash|surge> --gateway-url <url> [options]",
+		"  neko-agent --server-url <url> --backend-id <id> --backend-token <token> --gateway-type <clash|surge|passwall> --gateway-url <url> [options]",
 		"",
 		"Required:",
 		"  --server-url            Neko Master server URL",
@@ -139,7 +139,7 @@ func Usage() string {
 		"Optional:",
 		"  --agent-id              Agent ID (auto-generated from backend-token if not set)",
 		"  --log                   enable runtime logs (default true, set --log=false to disable)",
-		"  --gateway-type          clash|surge (default clash)",
+		"  --gateway-type          clash|surge|passwall (default clash)",
 		"  --gateway-token         Gateway secret",
 		"  --report-interval       default 2s",
 		"  --heartbeat-interval    default 30s",
@@ -188,6 +188,12 @@ func normalizeGatewayEndpoint(gatewayType, raw string) string {
 		trimmed = strings.Replace(trimmed, "ws://", "http://", 1)
 		trimmed = strings.Replace(trimmed, "wss://", "https://", 1)
 		return strings.TrimSuffix(trimmed, "/connections")
+	}
+	if gatewayType == "passwall" {
+		if trimmed == "" {
+			return "passwall://local"
+		}
+		return trimmed
 	}
 	return strings.TrimSuffix(trimmed, "/v1/requests/recent")
 }

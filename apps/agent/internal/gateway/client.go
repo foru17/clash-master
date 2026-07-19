@@ -8,7 +8,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,10 +40,16 @@ func NewClient(httpClient *http.Client, gatewayType, endpoint, token string) *Cl
 }
 
 func (c *Client) Collect(ctx context.Context) ([]domain.FlowSnapshot, error) {
-	if c.gatewayType == "clash" {
+	switch c.gatewayType {
+	case "clash":
 		return c.collectClash(ctx)
+	case "surge":
+		return c.collectSurge(ctx)
+	case "passwall":
+		return c.collectPasswall(ctx)
+	default:
+		return nil, fmt.Errorf("unsupported gateway type: %s", c.gatewayType)
 	}
-	return c.collectSurge(ctx)
 }
 
 type clashConnectionsResponse struct {
@@ -165,6 +174,16 @@ type surgeRequestsResponse struct {
 		InBytes            flexibleFloat64    `json:"inBytes"`
 		Time               flexibleFloat64    `json:"time"`
 	} `json:"requests"`
+}
+
+type passwallConntrackFlow struct {
+	Proto    string
+	SourceIP string
+	DestIP   string
+	Sport    string
+	Dport    string
+	Upload   int64
+	Download int64
 }
 
 func (c *Client) collectClash(ctx context.Context) ([]domain.FlowSnapshot, error) {
@@ -300,6 +319,250 @@ func (c *Client) collectSurge(ctx context.Context) ([]domain.FlowSnapshot, error
 	}
 
 	return snapshots, nil
+}
+
+func (c *Client) collectPasswall(ctx context.Context) ([]domain.FlowSnapshot, error) {
+	if err := ensurePasswallOne(); err != nil {
+		return nil, err
+	}
+
+	currentNode := getPasswallCurrentNode(ctx)
+	allowedTCPPorts := parsePasswallPortSet(passwallUCIGet(ctx, "passwall.@global_forwarding[0].tcp_redir_ports", "22,25,53,143,465,587,853,993,995,80,443"))
+	allowedUDPPorts := parsePasswallPortSet(passwallUCIGet(ctx, "passwall.@global_forwarding[0].udp_redir_ports", "1:65535"))
+
+	lines, err := readConntrackLines(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	nowMs := time.Now().UnixMilli()
+	snapshots := make([]domain.FlowSnapshot, 0, len(lines))
+	for _, line := range lines {
+		flow, ok := parseConntrackLine(line)
+		if !ok || flow.Upload <= 0 && flow.Download <= 0 {
+			continue
+		}
+		if !isPasswallClientFlow(flow) {
+			continue
+		}
+		if flow.Proto == "tcp" && !allowedTCPPorts.Contains(flow.Dport) {
+			continue
+		}
+		if flow.Proto == "udp" && !allowedUDPPorts.Contains(flow.Dport) {
+			continue
+		}
+
+		snapshots = append(snapshots, domain.FlowSnapshot{
+			ID:          strings.Join([]string{flow.Proto, flow.SourceIP, flow.Sport, flow.DestIP, flow.Dport}, ":"),
+			IP:          flow.DestIP,
+			SourceIP:    flow.SourceIP,
+			Chains:      []string{currentNode},
+			Rule:        "PassWall",
+			RulePayload: strings.ToUpper(flow.Proto) + "/" + flow.Dport,
+			Upload:      flow.Upload,
+			Download:    flow.Download,
+			TimestampMs: nowMs,
+		})
+	}
+
+	return snapshots, nil
+}
+
+type passwallPortSet struct {
+	allowAll bool
+	ports    map[int]struct{}
+	ranges   [][2]int
+}
+
+func (s passwallPortSet) Contains(port string) bool {
+	if s.allowAll {
+		return true
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(port))
+	if err != nil || n <= 0 || n > 65535 {
+		return false
+	}
+	if _, ok := s.ports[n]; ok {
+		return true
+	}
+	for _, r := range s.ranges {
+		if n >= r[0] && n <= r[1] {
+			return true
+		}
+	}
+	return false
+}
+
+func parsePasswallPortSet(raw string) passwallPortSet {
+	set := passwallPortSet{ports: make(map[int]struct{})}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" || strings.EqualFold(part, "disable") {
+			continue
+		}
+		if part == "1:65535" || part == "1-65535" || part == "0:65535" || part == "0-65535" {
+			set.allowAll = true
+			continue
+		}
+		if strings.ContainsAny(part, ":-") {
+			sep := ":"
+			if strings.Contains(part, "-") {
+				sep = "-"
+			}
+			bounds := strings.SplitN(part, sep, 2)
+			start, err1 := strconv.Atoi(strings.TrimSpace(bounds[0]))
+			end, err2 := strconv.Atoi(strings.TrimSpace(bounds[1]))
+			if err1 == nil && err2 == nil && start <= end && start > 0 && end <= 65535 {
+				set.ranges = append(set.ranges, [2]int{start, end})
+			}
+			continue
+		}
+		port, err := strconv.Atoi(part)
+		if err == nil && port > 0 && port <= 65535 {
+			set.ports[port] = struct{}{}
+		}
+	}
+	return set
+}
+
+func ensurePasswallOne() error {
+	hasPasswall := fileExists("/etc/config/passwall")
+	hasPasswall2 := fileExists("/etc/config/passwall2")
+	if !hasPasswall && hasPasswall2 {
+		return fmt.Errorf("passwall2 is installed, but gateway-type passwall only supports luci-app-passwall 25.8.5-1 / PassWall 1")
+	}
+	if !hasPasswall {
+		return fmt.Errorf("passwall config not found at /etc/config/passwall")
+	}
+	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func getPasswallCurrentNode(ctx context.Context) string {
+	nodeID := passwallUCIGet(ctx, "passwall.@global[0].tcp_node", "")
+	if nodeID == "" || nodeID == "nil" || strings.HasPrefix(nodeID, "_") {
+		nodeID = passwallUCIGet(ctx, "passwall.@global[0].udp_node", "")
+	}
+	if nodeID == "" || nodeID == "tcp" || strings.HasPrefix(nodeID, "_") {
+		return "PassWall"
+	}
+	remarks := passwallUCIGet(ctx, "passwall."+nodeID+".remarks", "")
+	return defaultString(remarks, nodeID)
+}
+
+func passwallUCIGet(ctx context.Context, key string, fallback string) string {
+	out, err := exec.CommandContext(ctx, "uci", "-q", "get", key).Output()
+	if err != nil {
+		return fallback
+	}
+	value := strings.TrimSpace(string(out))
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func readConntrackLines(ctx context.Context) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "conntrack", "-L", "-o", "extended").CombinedOutput()
+	if err == nil {
+		return splitNonEmptyLines(string(out)), nil
+	}
+	data, readErr := os.ReadFile("/proc/net/nf_conntrack")
+	if readErr == nil {
+		return splitNonEmptyLines(string(data)), nil
+	}
+	data, readErr = os.ReadFile("/proc/net/ip_conntrack")
+	if readErr == nil {
+		return splitNonEmptyLines(string(data)), nil
+	}
+	return nil, fmt.Errorf("read conntrack failed: %v", err)
+}
+
+func splitNonEmptyLines(raw string) []string {
+	rawLines := strings.Split(raw, "\n")
+	lines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func parseConntrackLine(line string) (passwallConntrackFlow, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 8 {
+		return passwallConntrackFlow{}, false
+	}
+
+	proto := strings.ToLower(fields[0])
+	if (proto == "ipv4" || proto == "ipv6") && len(fields) >= 3 {
+		proto = strings.ToLower(fields[2])
+	}
+
+	flow := passwallConntrackFlow{Proto: proto}
+	if flow.Proto != "tcp" && flow.Proto != "udp" {
+		return passwallConntrackFlow{}, false
+	}
+
+	var srcs, dsts, sports, dports []string
+	var bytesValues []int64
+	for _, field := range fields {
+		key, value, ok := strings.Cut(field, "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "src":
+			srcs = append(srcs, value)
+		case "dst":
+			dsts = append(dsts, value)
+		case "sport":
+			sports = append(sports, value)
+		case "dport":
+			dports = append(dports, value)
+		case "bytes":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err == nil && n > 0 {
+				bytesValues = append(bytesValues, n)
+			}
+		}
+	}
+	if len(srcs) == 0 || len(dsts) == 0 || len(sports) == 0 || len(dports) == 0 {
+		return passwallConntrackFlow{}, false
+	}
+
+	flow.SourceIP = srcs[0]
+	flow.DestIP = dsts[0]
+	flow.Sport = sports[0]
+	flow.Dport = dports[0]
+	if len(bytesValues) > 0 {
+		flow.Upload = bytesValues[0]
+	}
+	if len(bytesValues) > 1 {
+		flow.Download = bytesValues[1]
+	}
+	return flow, true
+}
+
+func isPasswallClientFlow(flow passwallConntrackFlow) bool {
+	src := net.ParseIP(flow.SourceIP)
+	dst := net.ParseIP(flow.DestIP)
+	if src == nil || dst == nil {
+		return false
+	}
+	if !src.IsPrivate() {
+		return false
+	}
+	if dst.IsPrivate() || dst.IsLoopback() || dst.IsMulticast() || dst.IsUnspecified() {
+		return false
+	}
+	return true
 }
 
 func normalizeChains(chains []string) []string {

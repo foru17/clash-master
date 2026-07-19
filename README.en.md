@@ -244,7 +244,7 @@ Open <http://localhost:3000> to configure.
 
 Use Agent mode when you want one centralized Neko Master service and multiple remote devices (OpenWrt, Linux, macOS) collecting local gateway data. The agent runs near the gateway, pulls data, and reports to the panel — the panel never connects to the gateway directly.
 
-Supported gateway types: **Clash / Mihomo** (WebSocket real-time) and **Surge v5+** (HTTP polling).
+Supported gateway types: **Clash / Mihomo** (WebSocket real-time), **Surge v5+** (HTTP polling), and **OpenWrt PassWall 1** (local Agent collection for luci-app-passwall 25.8.5-1; PassWall 2 is not supported).
 
 ### Quick Install (UI-generated command)
 
@@ -268,6 +268,15 @@ curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/apps/agent/
         NEKO_BACKEND_TOKEN='ag_yyy' \
         NEKO_GATEWAY_TYPE='surge' \
         NEKO_GATEWAY_URL='http://127.0.0.1:9091' \
+        sh
+
+# OpenWrt PassWall 1 example (run on the OpenWrt device)
+curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/apps/agent/install.sh \
+  | env NEKO_SERVER='http://your-panel:3000' \
+        NEKO_BACKEND_ID='3' \
+        NEKO_BACKEND_TOKEN='ag_zzz' \
+        NEKO_GATEWAY_TYPE='passwall' \
+        NEKO_GATEWAY_URL='passwall://local' \
         sh
 ```
 

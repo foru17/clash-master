@@ -236,11 +236,11 @@ pnpm dev
 
 当你希望中心化部署一个 Neko Master 服务，并在不同设备（OpenWrt、Linux、macOS）本地采集网关数据时，推荐使用 Agent 模式。Agent 运行在网关旁边，主动拉取数据并上报至面板，面板无需主动连接网关。
 
-支持网关类型：**Clash / Mihomo**（WebSocket 实时）和 **Surge v5+**（HTTP 轮询）。
+支持网关类型：**Clash / Mihomo**（WebSocket 实时）、**Surge v5+**（HTTP 轮询）和 **OpenWrt PassWall 1**（Agent 本机采集，适配 luci-app-passwall 25.8.5-1；不支持 PassWall 2）。
 
 ### 快速安装（UI 生成命令）
 
-1. 在面板「设置 → 后端」中添加一个 `Agent` 类型后端，选择网关类型（Clash 或 Surge）
+1. 在面板「设置 → 后端」中添加一个 `Agent` 类型后端，选择网关类型（Clash、Surge 或 PassWall）
 2. 点击「查看安装脚本」，复制一键安装命令，在目标主机上执行：
 
 ```bash
@@ -260,6 +260,15 @@ curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/apps/agent/
         NEKO_BACKEND_TOKEN='ag_yyy' \
         NEKO_GATEWAY_TYPE='surge' \
         NEKO_GATEWAY_URL='http://127.0.0.1:9091' \
+        sh
+
+# OpenWrt PassWall 1 示例（在 OpenWrt 设备上执行）
+curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/apps/agent/install.sh \
+  | env NEKO_SERVER='http://your-panel:3000' \
+        NEKO_BACKEND_ID='3' \
+        NEKO_BACKEND_TOKEN='ag_zzz' \
+        NEKO_GATEWAY_TYPE='passwall' \
+        NEKO_GATEWAY_URL='passwall://local' \
         sh
 ```
 

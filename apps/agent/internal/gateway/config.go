@@ -13,10 +13,16 @@ import (
 )
 
 func (c *Client) GetConfigSnapshot(ctx context.Context) (*domain.GatewayConfigSnapshot, error) {
-	if c.gatewayType == "clash" {
+	switch c.gatewayType {
+	case "clash":
 		return c.getClashConfig(ctx)
+	case "surge":
+		return c.getSurgeConfig(ctx)
+	case "passwall":
+		return c.getPasswallConfig(ctx)
+	default:
+		return nil, fmt.Errorf("unsupported gateway type: %s", c.gatewayType)
 	}
-	return c.getSurgeConfig(ctx)
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, out interface{}) error {
@@ -128,10 +134,16 @@ func (c *Client) getClashConfig(ctx context.Context) (*domain.GatewayConfigSnaps
 // GetPolicyStateSnapshot returns only the dynamic policy selection state (now field)
 // This is much lighter than GetConfigSnapshot as it doesn't fetch rules
 func (c *Client) GetPolicyStateSnapshot(ctx context.Context) (*domain.PolicyStateSnapshot, error) {
-	if c.gatewayType == "clash" {
+	switch c.gatewayType {
+	case "clash":
 		return c.getClashPolicyState(ctx)
+	case "surge":
+		return c.getSurgePolicyState(ctx)
+	case "passwall":
+		return c.getPasswallPolicyState(ctx)
+	default:
+		return nil, fmt.Errorf("unsupported gateway type: %s", c.gatewayType)
 	}
-	return c.getSurgePolicyState(ctx)
 }
 
 func (c *Client) getSurgePolicyState(ctx context.Context) (*domain.PolicyStateSnapshot, error) {
@@ -243,21 +255,10 @@ func (c *Client) getClashPolicyState(ctx context.Context) (*domain.PolicyStateSn
 }
 
 func parseSurgeRuleForAgent(raw string) domain.GatewayRule {
-    // Basic Surge parsing logic. For agent, returning "raw" is often enough as backend parses it.
-    // However master expects { type, payload, proxy } if we can parse it.
-    // But since Master's app.ts does `parseSurgeRule(raw)`, we actually don't need to parse it perfectly here on Agent.
-    // Wait, the master expects:
-    // parsedRules = data.rules.map(raw => {
-    //  const parsed = parseSurgeRule(raw);
-    //  return parsed ? { type: parsed.type, payload: parsed.payload, policy: parsed.policy, raw } : null;
-    // })
-    // We can just set type: "Surge", raw: raw, but it's better to let master do it, or do it here.
-    // The master's app.ts (modified earlier) uses rules cached and returns them directly:
-    // return { rules: cached.rules || [], _source: 'agent-cache' };
-    // And note that Master's GET /api/gateway/rules for Surge usually parses and returns { type, payload, proxy }.
-    return domain.GatewayRule{
-        Raw: raw, 
-    }
+	// For agent mode Surge, the master parses the raw rule text from the cache.
+	return domain.GatewayRule{
+		Raw: raw,
+	}
 }
 
 func (c *Client) getSurgeConfig(ctx context.Context) (*domain.GatewayConfigSnapshot, error) {
@@ -289,13 +290,13 @@ func (c *Client) getSurgeConfig(ctx context.Context) (*domain.GatewayConfigSnaps
 	for _, p := range policiesData.Proxies {
 		snap.Proxies[p] = domain.GatewayProxy{
 			Name: p,
-			Type: "Proxy", 
+			Type: "Proxy",
 		}
 	}
 
 	// Build provider proxies slice for policy groups
 	providerProxies := make([]domain.GatewayProxy, 0, len(policiesData.PolicyGroups))
-	
+
 	// Fetch current selection for each policy group
 	// Surge uses /v1/policy_groups/select?group_name=xxx endpoint
 	for _, g := range policiesData.PolicyGroups {
@@ -320,7 +321,7 @@ func (c *Client) getSurgeConfig(ctx context.Context) (*domain.GatewayConfigSnaps
 			Now:  groupDetail.Policy,
 		})
 	}
-	
+
 	// Create a default provider containing all policy groups
 	// This ensures frontend's buildGroupNowMap can find the 'now' values
 	if len(providerProxies) > 0 {
@@ -332,4 +333,78 @@ func (c *Client) getSurgeConfig(ctx context.Context) (*domain.GatewayConfigSnaps
 	}
 
 	return snap, nil
+}
+
+func (c *Client) getPasswallConfig(ctx context.Context) (*domain.GatewayConfigSnapshot, error) {
+	if err := ensurePasswallOne(); err != nil {
+		return nil, err
+	}
+
+	currentNode := getPasswallCurrentNode(ctx)
+	snap := &domain.GatewayConfigSnapshot{
+		Rules: []domain.GatewayRule{
+			{
+				Type:    "MATCH",
+				Payload: "*",
+				Proxy:   currentNode,
+				Raw:     "MATCH,*,PassWall",
+			},
+		},
+		Proxies: map[string]domain.GatewayProxy{
+			currentNode: {
+				Name: currentNode,
+				Type: "PassWall",
+				Now:  currentNode,
+			},
+			"DIRECT": {
+				Name: "DIRECT",
+				Type: "Direct",
+			},
+		},
+		Providers: map[string]domain.GatewayProvider{
+			"passwall": {
+				Name: "passwall",
+				Type: "PassWall",
+				Proxies: []domain.GatewayProxy{
+					{
+						Name: currentNode,
+						Type: "PassWall",
+						Now:  currentNode,
+					},
+				},
+			},
+		},
+	}
+
+	return snap, nil
+}
+
+func (c *Client) getPasswallPolicyState(ctx context.Context) (*domain.PolicyStateSnapshot, error) {
+	if err := ensurePasswallOne(); err != nil {
+		return nil, err
+	}
+
+	currentNode := getPasswallCurrentNode(ctx)
+	return &domain.PolicyStateSnapshot{
+		Proxies: map[string]domain.GatewayProxy{
+			currentNode: {
+				Name: currentNode,
+				Type: "PassWall",
+				Now:  currentNode,
+			},
+		},
+		Providers: map[string]domain.GatewayProvider{
+			"passwall": {
+				Name: "passwall",
+				Type: "PassWall",
+				Proxies: []domain.GatewayProxy{
+					{
+						Name: currentNode,
+						Type: "PassWall",
+						Now:  currentNode,
+					},
+				},
+			},
+		},
+	}, nil
 }

@@ -217,6 +217,11 @@ function startCollector(backend: BackendConfig) {
 
   console.log(`[Collector] Starting ${backend.type || 'clash'} collector for backend "${backend.name}" (ID: ${backend.id}) at ${backend.url}`);
 
+  if (backend.type === 'passwall') {
+    console.warn(`[Collector] PassWall backend "${backend.name}" (ID: ${backend.id}) requires agent mode, skip direct pulling`);
+    return;
+  }
+
   if (backend.type === 'surge') {
     // Start policy sync service for Surge
     const baseUrl = backend.url.replace(/\/$/, '');

@@ -7,7 +7,7 @@
 - `--server-url`：面板服务器 URL（无需添加 `/api` 后缀）
 - `--backend-id`：后端数字 ID
 - `--backend-token`：后端认证 token
-- `--gateway-type`：`clash` 或 `surge`
+- `--gateway-type`：`clash`、`surge` 或 `passwall`
 - `--gateway-url`：网关 API URL
 
 ## 可选参数
@@ -47,6 +47,19 @@
   --gateway-url 'http://127.0.0.1:9091' \
   --gateway-token 'surge-key'
 ```
+
+## 示例：OpenWrt PassWall 1
+
+```bash
+./neko-agent \
+  --server-url 'http://10.0.0.2:3000' \
+  --backend-id 10 \
+  --backend-token 'ag_xxx' \
+  --gateway-type 'passwall' \
+  --gateway-url 'passwall://local'
+```
+
+PassWall 仅支持 OpenWrt 上的 `luci-app-passwall` 25.8.5-1（PassWall 1），不支持 `luci-app-passwall2`。Agent 会在本机读取 PassWall 配置和连接跟踪数据。
 
 ## 远程 LAN 推荐默认值
 

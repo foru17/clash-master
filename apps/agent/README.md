@@ -9,7 +9,7 @@ The agent follows a layered Go structure so that `main` stays thin and business 
 - `main.go`: process entrypoint, wiring, signal handling
 - `internal/config`: CLI parsing, validation, endpoint normalization
 - `internal/agent`: runtime loops (collector/report/heartbeat), queue/retry/state management
-- `internal/gateway`: Clash/Surge adapters, payload decoding, protocol-specific normalization
+- `internal/gateway`: Clash/Surge/PassWall adapters, payload decoding, protocol-specific normalization
 - `internal/domain`: shared domain models (`FlowSnapshot`, `TrafficUpdate`)
 
 ## Build
@@ -95,6 +95,19 @@ Quiet mode (no runtime logs):
   --gateway-url http://127.0.0.1:9091 \
   --gateway-token <optional-surge-key>
 ```
+
+### OpenWrt PassWall 1
+
+```bash
+./neko-agent \
+  --server-url https://your-neko.example.com \
+  --backend-id 3 \
+  --backend-token <backend-token> \
+  --gateway-type passwall \
+  --gateway-url passwall://local
+```
+
+This mode targets `luci-app-passwall` 25.8.5-1 on OpenWrt and reads local UCI plus conntrack data. PassWall 2 is not supported by this adapter.
 
 ## Key flags
 

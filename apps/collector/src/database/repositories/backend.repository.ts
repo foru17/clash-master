@@ -13,7 +13,7 @@ export interface BackendConfig {
   name: string;
   url: string;
   token: string;
-  type: 'clash' | 'surge';
+  type: 'clash' | 'surge' | 'passwall';
   enabled: boolean;
   is_active: boolean;
   listening: boolean;
@@ -31,7 +31,7 @@ export class BackendRepository {
   /**
    * Create a new backend configuration
    */
-  createBackend(backend: { name: string; url: string; token?: string; type?: 'clash' | 'surge' }): number {
+  createBackend(backend: { name: string; url: string; token?: string; type?: 'clash' | 'surge' | 'passwall' }): number {
     const stmt = this.db.prepare(`
       INSERT INTO backend_configs (name, url, token, type, enabled, is_active, listening)
       VALUES (?, ?, ?, ?, 1, 0, 1)

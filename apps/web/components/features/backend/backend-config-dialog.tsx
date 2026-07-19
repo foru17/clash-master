@@ -260,7 +260,7 @@ interface Backend {
   mode: BackendMode;
   agentId: string;
   token: string;
-  type?: 'clash' | 'surge';
+  type?: 'clash' | 'surge' | 'passwall';
   enabled: boolean;
   is_active: boolean;
   listening: boolean;
@@ -282,7 +282,7 @@ interface AgentBootstrapInfo {
   agentId: string;
   token: string;
   tokenLocked?: boolean;
-  type: 'clash' | 'surge';
+  type: 'clash' | 'surge' | 'passwall';
   gatewayHost: string;
   gatewayPort: string;
   gatewaySsl: boolean;
@@ -329,7 +329,7 @@ interface BackendFormState {
   port: string;
   ssl: boolean;
   token: string;
-  type: 'clash' | 'surge';
+  type: 'clash' | 'surge' | 'passwall';
   agentId: string;
   agentGatewayHost: string;
   agentGatewayPort: string;
@@ -348,11 +348,12 @@ interface AgentGatewayConfig {
   gatewayToken: string;
 }
 
-function getDefaultGatewayPort(type: 'clash' | 'surge'): string {
+function getDefaultGatewayPort(type: 'clash' | 'surge' | 'passwall'): string {
+  if (type === "passwall") return "";
   return type === "surge" ? "9091" : "9090";
 }
 
-function getDefaultAgentGatewayConfig(type: 'clash' | 'surge'): AgentGatewayConfig {
+function getDefaultAgentGatewayConfig(type: 'clash' | 'surge' | 'passwall'): AgentGatewayConfig {
   return {
     gatewayHost: DEFAULT_AGENT_GATEWAY_HOST,
     gatewayPort: getDefaultGatewayPort(type),
@@ -361,7 +362,10 @@ function getDefaultAgentGatewayConfig(type: 'clash' | 'surge'): AgentGatewayConf
   };
 }
 
-function buildGatewayUrl(type: 'clash' | 'surge', host: string, port: string, ssl: boolean): string {
+function buildGatewayUrl(type: 'clash' | 'surge' | 'passwall', host: string, port: string, ssl: boolean): string {
+  if (type === "passwall") {
+    return "passwall://local";
+  }
   const normalizedHost = host.trim() || DEFAULT_AGENT_GATEWAY_HOST;
   const normalizedPort = port.trim() || getDefaultGatewayPort(type);
   const protocol = ssl ? "https" : "http";
@@ -370,7 +374,7 @@ function buildGatewayUrl(type: 'clash' | 'surge', host: string, port: string, ss
 
 function loadAgentGatewayConfig(
   backendId: number,
-  type: 'clash' | 'surge',
+  type: 'clash' | 'surge' | 'passwall',
 ): AgentGatewayConfig {
   const fallback = getDefaultAgentGatewayConfig(type);
   if (typeof window === "undefined") {
@@ -552,7 +556,11 @@ function buildAgentRunCommand(info: AgentBootstrapInfo, showToken = true): strin
   }
 
   const gatewayUrl =
-    info.type === "surge" ? "http://127.0.0.1:9091" : "http://127.0.0.1:9090";
+    info.type === "passwall"
+      ? "passwall://local"
+      : info.type === "surge"
+        ? "http://127.0.0.1:9091"
+        : "http://127.0.0.1:9090";
 
   const _legacy = [
     "./neko-agent \\",
@@ -597,7 +605,11 @@ function buildAgentInstallScriptCommand(info: AgentBootstrapInfo, showToken = tr
   }
 
   const gatewayUrl =
-    info.type === "surge" ? "http://127.0.0.1:9091" : "http://127.0.0.1:9090";
+    info.type === "passwall"
+      ? "passwall://local"
+      : info.type === "surge"
+        ? "http://127.0.0.1:9091"
+        : "http://127.0.0.1:9090";
 
   const _legacy = [
     `curl -fsSL ${AGENT_INSTALL_SCRIPT_URL} \\`,
@@ -737,7 +749,7 @@ export function BackendConfigDialog({
     name: string;
     url: string;
     token: string;
-    type: 'clash' | 'surge';
+    type: 'clash' | 'surge' | 'passwall';
   } | null>(null);
 
   const [formData, setFormData] = useState<BackendFormState>(
@@ -1555,12 +1567,13 @@ export function BackendConfigDialog({
                             <select
                               value={editFormData.type}
                               onChange={(e) =>
-                                setEditFormData({ ...editFormData, type: e.target.value as 'clash' | 'surge' })
+                                setEditFormData({ ...editFormData, type: e.target.value as 'clash' | 'surge' | 'passwall' })
                               }
                               className="h-9 mt-1 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                             >
                               <option value="clash">Clash / Mihomo</option>
                               <option value="surge">Surge</option>
+                              <option value="passwall">PassWall</option>
                             </select>
                           </div>
                           {editFormData.mode === "direct" && (
@@ -1680,11 +1693,11 @@ export function BackendConfigDialog({
                             {/* Backend Type Icon */}
                             <div
                               className="w-4 h-4 rounded-sm bg-white/90 flex items-center justify-center p-0.5"
-                              title={backend.type === 'surge' ? 'Surge' : 'Clash / Mihomo'}
+                              title={backend.type === 'passwall' ? 'PassWall' : backend.type === 'surge' ? 'Surge' : 'Clash / Mihomo'}
                             >
                               <img
                                 src={backend.type === 'surge' ? '/icons/icon-surge.png' : '/icons/icon-clash.png'}
-                                alt={backend.type === 'surge' ? 'Surge' : 'Clash'}
+                                alt={backend.type === 'passwall' ? 'PassWall' : backend.type === 'surge' ? 'Surge' : 'Clash'}
                                 className="w-full h-full object-contain"
                               />
                             </div>
@@ -1912,7 +1925,7 @@ export function BackendConfigDialog({
                           <select
                             value={formData.type}
                             onChange={(e) => {
-                              const nextType = e.target.value as 'clash' | 'surge';
+                              const nextType = e.target.value as 'clash' | 'surge' | 'passwall';
                               const currentDefaultPort = getDefaultGatewayPort(formData.type);
                               const nextDefaultPort = getDefaultGatewayPort(nextType);
                               setFormData({
@@ -1928,6 +1941,7 @@ export function BackendConfigDialog({
                           >
                             <option value="clash">Clash / Mihomo</option>
                             <option value="surge">Surge</option>
+                            <option value="passwall">PassWall</option>
                           </select>
                         </div>
                         {formData.mode === "direct" && (
@@ -2544,12 +2558,13 @@ export function BackendConfigDialog({
                 <select
                   value={editFormData.type}
                   onChange={(e) =>
-                    setEditFormData({ ...editFormData, type: e.target.value as 'clash' | 'surge' })
+                    setEditFormData({ ...editFormData, type: e.target.value as 'clash' | 'surge' | 'passwall' })
                   }
                   disabled
                   className="h-9 mt-1 w-full rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed">
                   <option value="clash">Clash / Mihomo</option>
                   <option value="surge">Surge</option>
+                  <option value="passwall">PassWall</option>
                 </select>
               </div>
               {editFormData.mode === "direct" && (
@@ -2684,7 +2699,7 @@ export function BackendConfigDialog({
                 <select
                   value={formData.type}
                   onChange={(e) => {
-                    const nextType = e.target.value as 'clash' | 'surge';
+                    const nextType = e.target.value as 'clash' | 'surge' | 'passwall';
                     const currentDefaultPort = getDefaultGatewayPort(formData.type);
                     const nextDefaultPort = getDefaultGatewayPort(nextType);
                     setFormData({
@@ -2699,6 +2714,7 @@ export function BackendConfigDialog({
                   className="h-9 mt-1 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
                   <option value="clash">Clash / Mihomo</option>
                   <option value="surge">Surge</option>
+                  <option value="passwall">PassWall</option>
                 </select>
               </div>
               {formData.mode === "direct" && (
@@ -3181,6 +3197,7 @@ export function BackendConfigDialog({
                       className="h-9 mt-1 w-full rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed">
                       <option value="clash">Clash / Mihomo</option>
                       <option value="surge">Surge</option>
+                      <option value="passwall">PassWall</option>
                     </select>
                   </div>
                   <div>

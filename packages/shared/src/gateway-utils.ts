@@ -3,7 +3,7 @@
  * 用于处理 Clash/Surge 后端的通用逻辑
  */
 
-export type BackendType = 'clash' | 'surge';
+export type BackendType = 'clash' | 'surge' | 'passwall';
 
 export interface BackendConfig {
   id: number;

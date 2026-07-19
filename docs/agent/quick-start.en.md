@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/apps/agent/
         sh
 ```
 
-- `NEKO_GATEWAY_TYPE`: `clash` for Clash/Mihomo, `surge` for Surge v5+
+- `NEKO_GATEWAY_TYPE`: `clash` for Clash/Mihomo, `surge` for Surge v5+, `passwall` for OpenWrt PassWall 1 (luci-app-passwall 25.8.5-1)
 - `NEKO_GATEWAY_TOKEN`: Clash uses it as `Authorization` bearer; Surge uses it as `x-key` header
 - `NEKO_GATEWAY_TOKEN` is optional — omit if no auth is configured on the gateway
 

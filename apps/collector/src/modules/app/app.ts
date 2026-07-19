@@ -363,7 +363,7 @@ export async function createApp(options: AppOptions) {
   // ...
 
   // Helper to get headers for backend requests
-  const getHeaders = (backend: { type: 'clash' | 'surge'; token: string }) => {
+  const getHeaders = (backend: { type: 'clash' | 'surge' | 'passwall'; token: string }) => {
     return buildGatewayHeaders(backend);
   };
 
@@ -951,6 +951,9 @@ export async function createApp(options: AppOptions) {
       }
       return { proxies: cached.proxies || {}, _source: 'agent-cache' };
     }
+    if (backend.type === 'passwall') {
+      return reply.status(400).send({ error: 'PassWall requires Agent mode on the OpenWrt device' });
+    }
 
     const gatewayBaseUrl = getGatewayBaseUrl(backend.url);
     const isSurge = backend.type === 'surge';
@@ -1039,6 +1042,9 @@ export async function createApp(options: AppOptions) {
         return reply.status(503).send({ error: 'Agent config not yet synced' });
       }
       return { providers: cached.providers || {}, proxies: cached.proxies || {}, _source: 'agent-cache' };
+    }
+    if (backend.type === 'passwall') {
+      return reply.status(400).send({ error: 'PassWall requires Agent mode on the OpenWrt device' });
     }
 
     const gatewayBaseUrl = getGatewayBaseUrl(backend.url);
@@ -1226,6 +1232,9 @@ export async function createApp(options: AppOptions) {
       }
       
       return { rules: cached.rules || [], _source: 'agent-cache' };
+    }
+    if (backend.type === 'passwall') {
+      return reply.status(400).send({ error: 'PassWall requires Agent mode on the OpenWrt device' });
     }
 
     const gatewayBaseUrl = getGatewayBaseUrl(backend.url);

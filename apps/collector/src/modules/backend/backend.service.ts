@@ -560,6 +560,13 @@ export class BackendService {
     if (type === 'surge') {
       return this.testSurgeConnection(url, token);
     }
+
+    if (type === 'passwall') {
+      return {
+        success: false,
+        message: 'PassWall is supported through Agent mode on the OpenWrt device, not direct API polling',
+      };
+    }
     
     return this.testClashConnection(url, token);
   }

@@ -7,7 +7,7 @@
 - `--server-url`: panel server URL (without `/api` suffix is fine)
 - `--backend-id`: backend numeric id
 - `--backend-token`: backend auth token
-- `--gateway-type`: `clash` or `surge`
+- `--gateway-type`: `clash`, `surge`, or `passwall`
 - `--gateway-url`: gateway API URL
 
 ## Optional flags
@@ -47,6 +47,19 @@
   --gateway-url 'http://127.0.0.1:9091' \
   --gateway-token 'surge-key'
 ```
+
+## Example: OpenWrt PassWall 1
+
+```bash
+./neko-agent \
+  --server-url 'http://10.0.0.2:3000' \
+  --backend-id 10 \
+  --backend-token 'ag_xxx' \
+  --gateway-type 'passwall' \
+  --gateway-url 'passwall://local'
+```
+
+PassWall support targets OpenWrt `luci-app-passwall` 25.8.5-1 (PassWall 1), not `luci-app-passwall2`. The agent reads local PassWall config and conntrack data on the device.
 
 ## Best-practice defaults for remote LAN
 

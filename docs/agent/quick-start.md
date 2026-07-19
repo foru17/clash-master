@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/apps/agent/
         sh
 ```
 
-- `NEKO_GATEWAY_TYPE`：`clash` 对应 Clash/Mihomo，`surge` 对应 Surge v5+
+- `NEKO_GATEWAY_TYPE`：`clash` 对应 Clash/Mihomo，`surge` 对应 Surge v5+，`passwall` 对应 OpenWrt PassWall 1（luci-app-passwall 25.8.5-1）
 - `NEKO_GATEWAY_TOKEN`：Clash 中作为 `Authorization` Bearer；Surge 中作为 `x-key` 请求头
 - `NEKO_GATEWAY_TOKEN` 可选——若网关未配置认证则省略
 
