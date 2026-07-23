@@ -95,6 +95,7 @@ export const TrafficTrendChart = React.memo(
             ? date.toLocaleDateString(undefined, {
                 month: "short",
                 day: "numeric",
+                hour: "2-digit",
               })
             : date.toLocaleTimeString(undefined, {
                 hour: "2-digit",
@@ -127,6 +128,7 @@ export const TrafficTrendChart = React.memo(
                   year: "numeric",
                   month: "short",
                   day: "numeric",
+                  hour: "2-digit",
                 })
               : date.toLocaleString(undefined, {
                   month: "short",
