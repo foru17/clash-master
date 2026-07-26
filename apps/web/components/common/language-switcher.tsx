@@ -11,12 +11,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const locales = ["en", "zh"] as const;
+const locales = ["en", "zh", "ko"] as const;
 type Locale = (typeof locales)[number];
 
 const localeLabels: Record<Locale, string> = {
   en: "English",
   zh: "中文",
+  ko: "한국어",
 };
 
 export function LanguageSwitcher() {
