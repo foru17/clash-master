@@ -757,7 +757,7 @@ const statsController: FastifyPluginAsync = async (fastify: FastifyInstance): Pr
     const query = request.query as Record<string, string | undefined>;
     const { minutes = '30', bucketMinutes = '1' } = query;
     const windowMinutes = service.parseLimit(minutes, 30, 60 * 24 * 7);
-    const bucket = service.parseLimit(bucketMinutes, 1, 60);
+    const bucket = service.parseLimit(bucketMinutes, 1, 24 * 60);
     return await service.getTrafficTrendAggregatedWithRouting(
       backendId,
       timeRange,

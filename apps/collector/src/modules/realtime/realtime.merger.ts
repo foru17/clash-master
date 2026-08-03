@@ -24,9 +24,10 @@ function toMinuteKey(tsMs: number): string {
 
 function bucketMinuteKey(minuteKey: string, bucketMinutes: number): string {
   if (bucketMinutes <= 1) return minuteKey;
-  const minute = parseInt(minuteKey.slice(14, 16), 10);
-  const bucketMinute = Math.floor(minute / bucketMinutes) * bucketMinutes;
-  return `${minuteKey.slice(0, 14)}${String(bucketMinute).padStart(2, '0')}:00`;
+  const timestampMs = Date.parse(`${minuteKey}Z`);
+  if (!Number.isFinite(timestampMs)) return minuteKey;
+  const bucketMs = Math.floor(bucketMinutes) * 60 * 1000;
+  return toMinuteKey(Math.floor(timestampMs / bucketMs) * bucketMs);
 }
 
 function normalizeSortOrder(order?: string): 'asc' | 'desc' {
