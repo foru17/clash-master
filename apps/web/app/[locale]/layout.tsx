@@ -27,8 +27,8 @@ export const metadata: Metadata = {
   title: "Home Network Monitor",
   description: "Home network traffic and availability monitoring",
   icons: {
-    icon: "/logo.png",
-    shortcut: "/logo.png",
+    icon: "/logo-hnm-v1.png",
+    shortcut: "/logo-hnm-v1.png",
     apple: "/icons/icon-192x192.png",
   },
   appleWebApp: {

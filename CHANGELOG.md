@@ -5,6 +5,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.0.1] - 2026-08-13
+
+### 修复
+
+- 应用内 Logo 改用版本化资源路径 `/logo-hnm-v1.png`，避免 Next Image、浏览器或 PWA 沿用升级前的 `/logo.png` 缓存。
+- 导航、关于页、移动端页头、站点图标和快捷图标统一引用新版 HNM Logo。
+
 ## [1.0.0] - 2026-08-13
 
 ### 家庭网络监控增强

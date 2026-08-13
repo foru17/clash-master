@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-08-13
+
+### Fixed
+
+- The in-app logo now uses the versioned `/logo-hnm-v1.png` asset path so upgrades cannot reuse a stale `/logo.png` entry from Next Image, browser, or PWA caches.
+- Sidebar, About dialog, mobile header, favicon, and shortcut icon references now consistently use the new HNM logo.
+
 ## [1.0.0] - 2026-08-13
 
 Home Network Monitor (HNM) is the first release of the home-network-focused fork of Neko Master.

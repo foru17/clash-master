@@ -133,7 +133,7 @@ export function Navigation({
         <div className="flex items-start gap-3 p-6 border-b border-border/40">
           <div className="w-14 h-14 rounded-xl shrink-0 flex items-center justify-center overflow-hidden hover:opacity-80">
             <Image
-              src="/logo.png"
+              src="/logo-hnm-v1.png"
               alt="Home Network Monitor"
               width={40}
               height={40}
@@ -359,7 +359,7 @@ export function Navigation({
               <div className="flex items-center gap-4 mb-4">
                 <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
                   <Image
-                    src="/logo.png"
+                    src="/logo-hnm-v1.png"
                     alt="Home Network Monitor"
                     width={64}
                     height={64}

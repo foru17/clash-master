@@ -162,7 +162,7 @@ export function Header({
           <div className="flex items-center gap-2">
             <div className="lg:hidden w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center overflow-hidden">
               <Image
-                src="/logo.png"
+                src="/logo-hnm-v1.png"
                 alt="Home Network Monitor"
                 width={32}
                 height={32}

@@ -49,7 +49,7 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
           <div className="flex items-center gap-4 mb-4">
             <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
               <Image
-                src="/logo.png"
+                src="/logo-hnm-v1.png"
                 alt="Home Network Monitor"
                 width={64}
                 height={64}
