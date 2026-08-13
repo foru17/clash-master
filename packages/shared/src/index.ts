@@ -107,6 +107,200 @@ export interface DeviceStats {
   lastSeen: string;
 }
 
+export interface VendorDomainRule {
+  id: number;
+  pattern: string;
+  matchType: "exact" | "suffix";
+  priority: number;
+  source: "manual" | "catalog" | "builtin";
+  sourceKey: string | null;
+  sourceRevision: string | null;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface TrafficVendor {
+  id: number;
+  slug: string;
+  name: string;
+  color: string;
+  priority: number;
+  enabled: boolean;
+  rules: VendorDomainRule[];
+}
+
+export interface VendorTrafficTotal {
+  vendorId: number;
+  vendorSlug: string;
+  vendorName: string;
+  color: string;
+  upload: number;
+  download: number;
+  connections: number;
+}
+
+export interface VendorDeviceTraffic extends VendorTrafficTotal {
+  sourceIP: string;
+}
+
+export interface VendorTrafficPoint extends VendorTrafficTotal {
+  time: string;
+}
+
+export type TransportProtocol = "tcp" | "udp" | "unknown";
+export type ApplicationProtocol = "http" | "tls" | "quic" | "dns" | "other";
+export type ProtocolConfidence = "exact" | "inferred" | "unknown";
+
+export interface VendorProtocolTraffic extends VendorTrafficTotal {
+  transport: TransportProtocol;
+  applicationProtocol: ApplicationProtocol;
+  confidence: ProtocolConfidence;
+}
+
+export interface VendorEndpointTraffic {
+  endpointType: "domain" | "ip";
+  endpoint: string;
+  upload: number;
+  download: number;
+  connections: number;
+  devices: number;
+  transport: TransportProtocol;
+  applicationProtocol: ApplicationProtocol;
+  confidence: ProtocolConfidence;
+  protocolShare: number;
+  networkOwner: string | null;
+  networkDomain: string | null;
+  country: string | null;
+  countryName: string | null;
+  city: string | null;
+  resolvedDomain: string | null;
+  resolvedVendorId: number | null;
+  resolvedVendorName: string | null;
+  resolvedVendorSlug: string | null;
+  resolutionSource: "observed" | "ptr" | null;
+  resolutionConfidence: "high" | "medium" | null;
+}
+
+export interface VendorRecognitionQuality {
+  totalTraffic: number;
+  recognizedTraffic: number;
+  domainObservedTraffic: number;
+  totalRecognitionRate: number;
+  domainObservationRate: number;
+  recognizedDomainRate: number;
+}
+
+export interface UnknownVendorCandidate {
+  registrableDomain: string;
+  upload: number;
+  download: number;
+  connections: number;
+  devices: number;
+  lastSeen: string;
+}
+
+export interface VendorCatalogState {
+  sourceKey: string;
+  sourceUrl: string;
+  revision: string | null;
+  status: "idle" | "syncing" | "success" | "failed";
+  rulesCount: number;
+  conflictCount: number;
+  excludedCount: number;
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  error: string | null;
+}
+
+export interface GatewaySnifferStatus {
+  supported: boolean;
+  enabled: boolean | null;
+  backendType: "clash" | "surge";
+  message: string;
+}
+
+export interface VendorAutomationResponse {
+  catalog: VendorCatalogState;
+  unknownCandidates: UnknownVendorCandidate[];
+  sniffer: GatewaySnifferStatus;
+}
+
+export interface VendorStatsResponse {
+  granularity: "hour" | "day";
+  totals: VendorTrafficTotal[];
+  byDevice: VendorDeviceTraffic[];
+  trend: VendorTrafficPoint[];
+  protocols: VendorProtocolTraffic[];
+  quality: VendorRecognitionQuality;
+}
+
+export interface VendorEndpointStatsResponse {
+  granularity: "hour" | "day";
+  vendorId: number;
+  endpoints: VendorEndpointTraffic[];
+}
+
+export type MonitorType = "icmp" | "tcp" | "http" | "dns";
+export type MonitorStatus = "pending" | "up" | "down" | "degraded" | "paused";
+
+export interface AvailabilityMonitor {
+  id: number;
+  name: string;
+  type: MonitorType;
+  target: string;
+  port: number | null;
+  httpMethod: string;
+  expectedStatusMin: number;
+  expectedStatusMax: number;
+  dnsServer: string | null;
+  dnsRecordType: string;
+  dnsExpected: string | null;
+  intervalSeconds: number;
+  timeoutMs: number;
+  failureThreshold: number;
+  recoveryThreshold: number;
+  latencyWarningMs: number | null;
+  enabled: boolean;
+  status: MonitorStatus;
+  lastCheckedAt: string | null;
+  lastUpAt: string | null;
+  lastDownAt: string | null;
+  latencyMs: number | null;
+  message: string | null;
+}
+
+export interface MonitorHistoryPoint {
+  time: string;
+  checks: number;
+  upChecks: number;
+  downChecks: number;
+  degradedChecks: number;
+  averageLatencyMs: number | null;
+  minLatencyMs: number | null;
+  maxLatencyMs: number | null;
+  status: MonitorStatus;
+}
+
+export interface MonitorOverviewItem {
+  monitorId: number;
+  availability: number | null;
+  checks: number;
+  upChecks: number;
+  downChecks: number;
+  degradedChecks: number;
+  history: MonitorHistoryPoint[];
+}
+
+export interface MonitorIncident {
+  id: number;
+  monitorId: number;
+  monitorName: string;
+  startedAt: string;
+  endedAt: string | null;
+  status: "open" | "resolved";
+  cause: string | null;
+  message: string | null;
+}
+
 export interface RuleStats {
   rule: string;
   finalProxy: string;

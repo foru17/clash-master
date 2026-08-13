@@ -18,6 +18,8 @@ import {
   X,
   ShieldAlert,
   HeartPulse,
+  Building2,
+  RadioTower,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -42,8 +44,9 @@ interface NavigationProps {
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
 const GITHUB_REPO =
-  process.env.NEXT_PUBLIC_GITHUB_REPO || "foru17/neko-master";
+  process.env.NEXT_PUBLIC_GITHUB_REPO || "zhangjf108/Home-Network-Monitor";
 const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
+const UPSTREAM_URL = "https://github.com/foru17/neko-master";
 
 const NAV_ITEMS = [
   { id: "overview", icon: LayoutDashboard },
@@ -52,8 +55,27 @@ const NAV_ITEMS = [
   { id: "countries", icon: MapPin },
   { id: "proxies", icon: Server },
   { id: "devices", icon: Smartphone },
+  { id: "vendors", icon: Building2 },
+  { id: "availability", icon: RadioTower },
   { id: "health", icon: HeartPulse },
 ];
+
+// Mobile shows five items at a time. Keep the home-network monitoring
+// entrances in the first viewport so they do not look like missing features.
+const MOBILE_NAV_PRIORITY = [
+  "overview",
+  "domains",
+  "devices",
+  "vendors",
+  "availability",
+  "rules",
+  "countries",
+  "proxies",
+  "health",
+];
+const MOBILE_NAV_ITEMS = MOBILE_NAV_PRIORITY.map(
+  (id) => NAV_ITEMS.find((item) => item.id === id)!,
+);
 
 export function Navigation({
   activeTab,
@@ -112,7 +134,7 @@ export function Navigation({
           <div className="w-14 h-14 rounded-xl shrink-0 flex items-center justify-center overflow-hidden hover:opacity-80">
             <Image
               src="/logo.png"
-              alt="Neko Master"
+              alt="Home Network Monitor"
               width={40}
               height={40}
               className="w-full h-full object-cover"
@@ -284,7 +306,7 @@ export function Navigation({
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border/40 bg-background/80 backdrop-blur-md">
         <div className="h-16 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           <div className="flex items-center h-full min-w-full px-1">
-            {NAV_ITEMS.map((item) => {
+            {MOBILE_NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               return (
@@ -319,7 +341,7 @@ export function Navigation({
           onClick={(e) => {
             if (e.target === e.currentTarget) setAboutOpen(false);
           }}>
-          <Card className="w-full max-w-[420px]">
+          <Card className="w-full max-w-[560px]">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Info className="w-5 h-5" />
@@ -338,7 +360,7 @@ export function Navigation({
                 <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
                   <Image
                     src="/logo.png"
-                    alt="Neko Master"
+                    alt="Home Network Monitor"
                     width={64}
                     height={64}
                     className="w-full h-full object-cover"
@@ -427,13 +449,25 @@ export function Navigation({
                   <span className="text-sm text-muted-foreground">MIT</span>
                 </div>
 
+                <a
+                  href={UPSTREAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-3 rounded-xl bg-secondary/50 border border-border/50 hover:bg-secondary/80 hover:border-primary/30 transition-all group gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{aboutT("basedOn")}</p>
+                    <p className="text-xs text-muted-foreground truncate">{aboutT("upstreamProject")}</p>
+                  </div>
+                  <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-primary shrink-0" />
+                </a>
+
                 {/* GitHub Link */}
                 <a
                   href={GITHUB_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-between p-3 rounded-xl bg-secondary/50 border border-border/50 hover:bg-secondary/80 hover:border-primary/30 transition-all group">
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
                     <svg
                       viewBox="0 0 24 24"
                       className="w-5 h-5 fill-foreground shrink-0"
@@ -444,7 +478,7 @@ export function Navigation({
                       <p className="text-sm font-medium">
                         {aboutT("openSource")}
                       </p>
-                      <p className="text-xs text-muted-foreground truncate">
+                      <p className="text-xs text-muted-foreground break-all">
                         {GITHUB_URL}
                       </p>
                     </div>

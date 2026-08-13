@@ -7,6 +7,9 @@
 import type Database from 'better-sqlite3';
 import { BaseRepository } from './base.repository.js';
 import { buildRuleName } from '../../shared/utils/rule-name.js';
+import { VendorClassifier } from '../vendor-classifier.js';
+import { classifyProtocol } from '../protocol-classifier.js';
+import { getRegistrableDomain } from '../registrable-domain.js';
 
 export interface TrafficUpdate {
   domain: string;
@@ -20,6 +23,8 @@ export interface TrafficUpdate {
   connections?: number;
   sourceIP?: string;
   timestampMs?: number;
+  network?: string;
+  destinationPort?: string | number;
 }
 
 export class TrafficWriterRepository extends BaseRepository {
@@ -71,6 +76,47 @@ export class TrafficWriterRepository extends BaseRepository {
     const deviceMap = new Map<string, { sourceIP: string; upload: number; download: number; count: number }>();
     const deviceDomainMap = new Map<string, { sourceIP: string; domain: string; upload: number; download: number; count: number }>();
     const deviceIPMap = new Map<string, { sourceIP: string; ip: string; upload: number; download: number; count: number }>();
+    const vendorHourlyMap = new Map<string, {
+      hour: string; sourceIP: string; vendorId: number;
+      upload: number; download: number; connections: number;
+    }>();
+    const vendorDailyMap = new Map<string, {
+      day: string; sourceIP: string; vendorId: number;
+      upload: number; download: number; connections: number;
+    }>();
+    const vendorProtocolHourlyMap = new Map<string, {
+      hour: string; sourceIP: string; vendorId: number; transport: string;
+      applicationProtocol: string; confidence: string;
+      upload: number; download: number; connections: number;
+    }>();
+    const vendorProtocolDailyMap = new Map<string, {
+      day: string; sourceIP: string; vendorId: number; transport: string;
+      applicationProtocol: string; confidence: string;
+      upload: number; download: number; connections: number;
+    }>();
+    const vendorEndpointHourlyMap = new Map<string, {
+      hour: string; sourceIP: string; vendorId: number; endpointType: 'domain' | 'ip';
+      endpoint: string; transport: string; applicationProtocol: string; confidence: string;
+      upload: number; download: number; connections: number;
+    }>();
+    const vendorEndpointDailyMap = new Map<string, {
+      day: string; sourceIP: string; vendorId: number; endpointType: 'domain' | 'ip';
+      endpoint: string; transport: string; applicationProtocol: string; confidence: string;
+      upload: number; download: number; connections: number;
+    }>();
+    const observabilityHourlyMap = new Map<string, {
+      hour: string; sourceIP: string; domainPresent: number;
+      upload: number; download: number; connections: number;
+    }>();
+    const observabilityDailyMap = new Map<string, {
+      day: string; sourceIP: string; domainPresent: number;
+      upload: number; download: number; connections: number;
+    }>();
+    const unresolvedDailyMap = new Map<string, {
+      day: string; sourceIP: string; registrableDomain: string;
+      upload: number; download: number; connections: number;
+    }>();
+    const vendorClassifier = new VendorClassifier(this.db);
 
     // Cache Date→key conversions: many updates share the same timestampMs
     const timeKeyCache = new Map<number, { hourKey: string; minuteKey: string }>();
@@ -92,6 +138,158 @@ export class TrafficWriterRepository extends BaseRepository {
       const finalProxy = update.chains.length > 0 ? update.chains[0] : 'DIRECT';
       const fullChain = update.chains.join(' > ') || update.chain || 'DIRECT';
       const { hourKey, minuteKey } = getTimeKeys(update.timestampMs ?? now.getTime());
+      const sourceIP = update.sourceIP || '';
+      const vendorId = vendorClassifier.classify(update.domain);
+      const protocol = classifyProtocol(update.network, update.destinationPort);
+      const vendorHourlyKey = `${hourKey}:${sourceIP}:${vendorId}`;
+      const vendorHourly = vendorHourlyMap.get(vendorHourlyKey);
+      if (vendorHourly) {
+        vendorHourly.upload += update.upload;
+        vendorHourly.download += update.download;
+        vendorHourly.connections += connections;
+      } else {
+        vendorHourlyMap.set(vendorHourlyKey, {
+          hour: hourKey,
+          sourceIP,
+          vendorId,
+          upload: update.upload,
+          download: update.download,
+          connections,
+        });
+      }
+      const day = hourKey.slice(0, 10);
+      const vendorDailyKey = `${day}:${sourceIP}:${vendorId}`;
+      const vendorDaily = vendorDailyMap.get(vendorDailyKey);
+      if (vendorDaily) {
+        vendorDaily.upload += update.upload;
+        vendorDaily.download += update.download;
+        vendorDaily.connections += connections;
+      } else {
+        vendorDailyMap.set(vendorDailyKey, {
+          day,
+          sourceIP,
+          vendorId,
+          upload: update.upload,
+          download: update.download,
+          connections,
+        });
+      }
+
+      const protocolHourlyKey = `${hourKey}:${sourceIP}:${vendorId}:${protocol.transport}:${protocol.applicationProtocol}:${protocol.confidence}`;
+      const protocolHourly = vendorProtocolHourlyMap.get(protocolHourlyKey);
+      if (protocolHourly) {
+        protocolHourly.upload += update.upload;
+        protocolHourly.download += update.download;
+        protocolHourly.connections += connections;
+      } else {
+        vendorProtocolHourlyMap.set(protocolHourlyKey, {
+          hour: hourKey,
+          sourceIP,
+          vendorId,
+          transport: protocol.transport,
+          applicationProtocol: protocol.applicationProtocol,
+          confidence: protocol.confidence,
+          upload: update.upload,
+          download: update.download,
+          connections,
+        });
+      }
+      const protocolDailyKey = `${day}:${sourceIP}:${vendorId}:${protocol.transport}:${protocol.applicationProtocol}:${protocol.confidence}`;
+      const protocolDaily = vendorProtocolDailyMap.get(protocolDailyKey);
+      if (protocolDaily) {
+        protocolDaily.upload += update.upload;
+        protocolDaily.download += update.download;
+        protocolDaily.connections += connections;
+      } else {
+        vendorProtocolDailyMap.set(protocolDailyKey, {
+          day,
+          sourceIP,
+          vendorId,
+          transport: protocol.transport,
+          applicationProtocol: protocol.applicationProtocol,
+          confidence: protocol.confidence,
+          upload: update.upload,
+          download: update.download,
+          connections,
+        });
+      }
+
+      const normalizedDomain = update.domain.trim().toLowerCase();
+      const domainPresent = normalizedDomain && normalizedDomain !== 'unknown' ? 1 : 0;
+      const endpointType: 'domain' | 'ip' = domainPresent === 1 ? 'domain' : 'ip';
+      const endpoint = endpointType === 'domain' ? normalizedDomain : update.ip.trim();
+      if (endpoint) {
+        const endpointHourlyKey = `${hourKey}:${sourceIP}:${vendorId}:${endpointType}:${endpoint}:${protocol.transport}:${protocol.applicationProtocol}:${protocol.confidence}`;
+        const endpointHourly = vendorEndpointHourlyMap.get(endpointHourlyKey);
+        if (endpointHourly) {
+          endpointHourly.upload += update.upload;
+          endpointHourly.download += update.download;
+          endpointHourly.connections += connections;
+        } else {
+          vendorEndpointHourlyMap.set(endpointHourlyKey, {
+            hour: hourKey, sourceIP, vendorId, endpointType, endpoint,
+            transport: protocol.transport, applicationProtocol: protocol.applicationProtocol,
+            confidence: protocol.confidence, upload: update.upload, download: update.download,
+            connections,
+          });
+        }
+        const endpointDailyKey = `${day}:${sourceIP}:${vendorId}:${endpointType}:${endpoint}:${protocol.transport}:${protocol.applicationProtocol}:${protocol.confidence}`;
+        const endpointDaily = vendorEndpointDailyMap.get(endpointDailyKey);
+        if (endpointDaily) {
+          endpointDaily.upload += update.upload;
+          endpointDaily.download += update.download;
+          endpointDaily.connections += connections;
+        } else {
+          vendorEndpointDailyMap.set(endpointDailyKey, {
+            day, sourceIP, vendorId, endpointType, endpoint,
+            transport: protocol.transport, applicationProtocol: protocol.applicationProtocol,
+            confidence: protocol.confidence, upload: update.upload, download: update.download,
+            connections,
+          });
+        }
+      }
+      const observabilityHourlyKey = `${hourKey}:${sourceIP}:${domainPresent}`;
+      const observabilityHourly = observabilityHourlyMap.get(observabilityHourlyKey);
+      if (observabilityHourly) {
+        observabilityHourly.upload += update.upload;
+        observabilityHourly.download += update.download;
+        observabilityHourly.connections += connections;
+      } else {
+        observabilityHourlyMap.set(observabilityHourlyKey, {
+          hour: hourKey, sourceIP, domainPresent,
+          upload: update.upload, download: update.download, connections,
+        });
+      }
+      const observabilityDailyKey = `${day}:${sourceIP}:${domainPresent}`;
+      const observabilityDaily = observabilityDailyMap.get(observabilityDailyKey);
+      if (observabilityDaily) {
+        observabilityDaily.upload += update.upload;
+        observabilityDaily.download += update.download;
+        observabilityDaily.connections += connections;
+      } else {
+        observabilityDailyMap.set(observabilityDailyKey, {
+          day, sourceIP, domainPresent,
+          upload: update.upload, download: update.download, connections,
+        });
+      }
+
+      if (domainPresent === 1 && vendorClassifier.isUnknown(vendorId)) {
+        const registrableDomain = getRegistrableDomain(normalizedDomain);
+        if (registrableDomain) {
+          const unresolvedKey = `${day}:${sourceIP}:${registrableDomain}`;
+          const unresolved = unresolvedDailyMap.get(unresolvedKey);
+          if (unresolved) {
+            unresolved.upload += update.upload;
+            unresolved.download += update.download;
+            unresolved.connections += connections;
+          } else {
+            unresolvedDailyMap.set(unresolvedKey, {
+              day, sourceIP, registrableDomain,
+              upload: update.upload, download: update.download, connections,
+            });
+          }
+        }
+      }
 
       // Aggregate domain stats
       if (update.domain) {
@@ -564,6 +762,121 @@ export class TrafficWriterRepository extends BaseRepository {
       for (const [, data] of deviceIPMap) { deviceIPStmt.run({ backendId, sourceIP: data.sourceIP, ip: data.ip, upload: data.upload, download: data.download, count: data.count, timestamp }); }
     });
 
+    // Vendor rollups are deliberately core writes: their low cardinality keeps
+    // 365-day history practical even when full detail is routed to ClickHouse.
+    const txVendor = this.db.transaction(() => {
+      const hourlyStmt = this.db.prepare(`
+        INSERT INTO vendor_hourly_stats
+          (backend_id, hour, source_ip, vendor_id, upload, download, connections)
+        VALUES (@backendId, @hour, @sourceIP, @vendorId, @upload, @download, @connections)
+        ON CONFLICT(backend_id, hour, source_ip, vendor_id) DO UPDATE SET
+          upload = upload + @upload,
+          download = download + @download,
+          connections = connections + @connections
+      `);
+      for (const data of vendorHourlyMap.values()) {
+        hourlyStmt.run({ backendId, ...data });
+      }
+
+      const dailyStmt = this.db.prepare(`
+        INSERT INTO vendor_daily_stats
+          (backend_id, day, source_ip, vendor_id, upload, download, connections)
+        VALUES (@backendId, @day, @sourceIP, @vendorId, @upload, @download, @connections)
+        ON CONFLICT(backend_id, day, source_ip, vendor_id) DO UPDATE SET
+          upload = upload + @upload,
+          download = download + @download,
+          connections = connections + @connections
+      `);
+      for (const data of vendorDailyMap.values()) {
+        dailyStmt.run({ backendId, ...data });
+      }
+
+      const protocolHourlyStmt = this.db.prepare(`
+        INSERT INTO vendor_protocol_hourly_stats
+          (backend_id, hour, source_ip, vendor_id, transport, application_protocol, confidence, upload, download, connections)
+        VALUES (@backendId, @hour, @sourceIP, @vendorId, @transport, @applicationProtocol, @confidence, @upload, @download, @connections)
+        ON CONFLICT(backend_id, hour, source_ip, vendor_id, transport, application_protocol, confidence) DO UPDATE SET
+          upload = upload + @upload, download = download + @download, connections = connections + @connections
+      `);
+      for (const data of vendorProtocolHourlyMap.values()) {
+        protocolHourlyStmt.run({ backendId, ...data });
+      }
+
+      const protocolDailyStmt = this.db.prepare(`
+        INSERT INTO vendor_protocol_daily_stats
+          (backend_id, day, source_ip, vendor_id, transport, application_protocol, confidence, upload, download, connections)
+        VALUES (@backendId, @day, @sourceIP, @vendorId, @transport, @applicationProtocol, @confidence, @upload, @download, @connections)
+        ON CONFLICT(backend_id, day, source_ip, vendor_id, transport, application_protocol, confidence) DO UPDATE SET
+          upload = upload + @upload, download = download + @download, connections = connections + @connections
+      `);
+      for (const data of vendorProtocolDailyMap.values()) {
+        protocolDailyStmt.run({ backendId, ...data });
+      }
+
+      const endpointHourlyStmt = this.db.prepare(`
+        INSERT INTO vendor_endpoint_hourly_stats
+          (backend_id, hour, source_ip, vendor_id, endpoint_type, endpoint,
+           transport, application_protocol, confidence, upload, download, connections)
+        VALUES (@backendId, @hour, @sourceIP, @vendorId, @endpointType, @endpoint,
+                @transport, @applicationProtocol, @confidence, @upload, @download, @connections)
+        ON CONFLICT(backend_id, hour, source_ip, vendor_id, endpoint_type, endpoint,
+                    transport, application_protocol, confidence) DO UPDATE SET
+          upload = upload + @upload, download = download + @download,
+          connections = connections + @connections
+      `);
+      for (const data of vendorEndpointHourlyMap.values()) {
+        endpointHourlyStmt.run({ backendId, ...data });
+      }
+
+      const endpointDailyStmt = this.db.prepare(`
+        INSERT INTO vendor_endpoint_daily_stats
+          (backend_id, day, source_ip, vendor_id, endpoint_type, endpoint,
+           transport, application_protocol, confidence, upload, download, connections)
+        VALUES (@backendId, @day, @sourceIP, @vendorId, @endpointType, @endpoint,
+                @transport, @applicationProtocol, @confidence, @upload, @download, @connections)
+        ON CONFLICT(backend_id, day, source_ip, vendor_id, endpoint_type, endpoint,
+                    transport, application_protocol, confidence) DO UPDATE SET
+          upload = upload + @upload, download = download + @download,
+          connections = connections + @connections
+      `);
+      for (const data of vendorEndpointDailyMap.values()) {
+        endpointDailyStmt.run({ backendId, ...data });
+      }
+
+      const observabilityHourlyStmt = this.db.prepare(`
+        INSERT INTO traffic_observability_hourly_stats
+          (backend_id, hour, source_ip, domain_present, upload, download, connections)
+        VALUES (@backendId, @hour, @sourceIP, @domainPresent, @upload, @download, @connections)
+        ON CONFLICT(backend_id, hour, source_ip, domain_present) DO UPDATE SET
+          upload = upload + @upload, download = download + @download, connections = connections + @connections
+      `);
+      for (const data of observabilityHourlyMap.values()) {
+        observabilityHourlyStmt.run({ backendId, ...data });
+      }
+
+      const observabilityDailyStmt = this.db.prepare(`
+        INSERT INTO traffic_observability_daily_stats
+          (backend_id, day, source_ip, domain_present, upload, download, connections)
+        VALUES (@backendId, @day, @sourceIP, @domainPresent, @upload, @download, @connections)
+        ON CONFLICT(backend_id, day, source_ip, domain_present) DO UPDATE SET
+          upload = upload + @upload, download = download + @download, connections = connections + @connections
+      `);
+      for (const data of observabilityDailyMap.values()) {
+        observabilityDailyStmt.run({ backendId, ...data });
+      }
+
+      const unresolvedStmt = this.db.prepare(`
+        INSERT INTO unresolved_domain_daily_stats
+          (backend_id, day, source_ip, registrable_domain, upload, download, connections)
+        VALUES (@backendId, @day, @sourceIP, @registrableDomain, @upload, @download, @connections)
+        ON CONFLICT(backend_id, day, source_ip, registrable_domain) DO UPDATE SET
+          upload = upload + @upload, download = download + @download, connections = connections + @connections
+      `);
+      for (const data of unresolvedDailyMap.values()) {
+        unresolvedStmt.run({ backendId, ...data });
+      }
+    });
+
     // One outer transaction: a mid-flush error rolls back every table, so a
     // retried batch cannot double-count tables that had already committed.
     // (Nested better-sqlite3 transactions become savepoints automatically.)
@@ -574,6 +887,7 @@ export class TrafficWriterRepository extends BaseRepository {
         tx1();
       }
       tx2();
+      txVendor();
       if (!reduceWrites) {
         tx3();
       }

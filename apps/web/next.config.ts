@@ -22,6 +22,9 @@ const API_DESTINATION = apiUrl.endsWith('/api')
 // Base Next.js config
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Allow the local Codex browser to load development/HMR resources when the
+  // dashboard is opened via 127.0.0.1 instead of localhost.
+  allowedDevOrigins: ["127.0.0.1"],
   output: 'standalone',
   outputFileTracingRoot: join(__dirname, '../..'),
   env: {

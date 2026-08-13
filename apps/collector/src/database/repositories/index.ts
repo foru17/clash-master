@@ -19,3 +19,10 @@ export { IPRepository } from './ip.repository.js';
 export { ConfigRepository, type GeoLookupConfig, type GeoLookupProvider } from './config.repository.js';
 export { TrafficWriterRepository, type TrafficUpdate } from './traffic-writer.repository.js';
 export { HealthRepository, type HealthLogRow, type HealthStatus } from './health.repository.js';
+export { VendorRepository, type VendorInput } from './vendor.repository.js';
+export {
+  MonitorRepository,
+  type MonitorInput,
+  type MonitorCheckResult,
+  type MonitorTransition,
+} from './monitor.repository.js';

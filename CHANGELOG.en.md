@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-08-13
+
+Home Network Monitor (HNM) is the first release of the home-network-focused fork of Neko Master.
+
+### Added
+
+- Vendor traffic history with protocol breakdown, configurable top domain/IP lists, manual domain rules, custom vendors, automatic rule-catalog synchronization, and Unknown-IP hostname/PTR/GeoIP enrichment.
+- ICMP, TCP, HTTP, and DNS availability monitoring with uptime, latency hover details, incident confirmation, recovery tracking, and webhook notifications.
+- Six independent SQLite retention layers for raw traffic, general hourly data, vendor history, domain/IP history, availability minute data, and availability hourly data; every layer supports permanent retention.
+- A new HNM brand and app icon, a wider overflow-safe About dialog, and an always-visible top-right Settings close button.
+
+### Attribution
+
+- Derived from the MIT-licensed [foru17/neko-master](https://github.com/foru17/neko-master); upstream copyright and license notices are retained.
+
 ## [1.4.0] - 2026-07-19
 
 This release comes from a second external deep code review. Each finding was independently verified before fixing; the high-priority ones — data correctness, security defaults, error visibility, and a live install failure — are addressed here.

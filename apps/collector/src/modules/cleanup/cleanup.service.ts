@@ -1,11 +1,15 @@
 import { StatsDatabase } from '../db/db.js';
-import { RetentionConfig, DEFAULT_RETENTION } from './cleanup.types.js';
+import { RetentionConfig, DEFAULT_RETENTION, type RetentionPeriod } from './cleanup.types.js';
 
 export interface CleanupOverrides {
   cleanupInterval?: number;
-  connectionLogsDays?: number;
-  hourlyStatsDays?: number;
-  healthLogDays?: number;
+  connectionLogsDays?: RetentionPeriod;
+  hourlyStatsDays?: RetentionPeriod;
+  healthLogDays?: RetentionPeriod;
+  vendorHourlyDays?: RetentionPeriod;
+  vendorEndpointHourlyDays?: RetentionPeriod;
+  monitorMinuteDays?: RetentionPeriod;
+  monitorHourlyDays?: RetentionPeriod;
   autoCleanup?: boolean;
 }
 
@@ -33,7 +37,7 @@ export class CleanupService {
    * Get effective config by merging (in precedence order):
    * env/constructor overrides > DB config > defaults.
    */
-  private getConfig(): RetentionConfig & { healthLogDays: number } {
+  private getConfig(): RetentionConfig & { healthLogDays: RetentionPeriod } {
     const dbConfig = this.db.getRetentionConfig();
     const merged: RetentionConfig = {
       ...DEFAULT_RETENTION,
@@ -42,6 +46,10 @@ export class CleanupService {
     };
     if (this.overrides.connectionLogsDays !== undefined) merged.connectionLogsDays = this.overrides.connectionLogsDays;
     if (this.overrides.hourlyStatsDays !== undefined) merged.hourlyStatsDays = this.overrides.hourlyStatsDays;
+    if (this.overrides.vendorHourlyDays !== undefined) merged.vendorHourlyDays = this.overrides.vendorHourlyDays;
+    if (this.overrides.vendorEndpointHourlyDays !== undefined) merged.vendorEndpointHourlyDays = this.overrides.vendorEndpointHourlyDays;
+    if (this.overrides.monitorMinuteDays !== undefined) merged.monitorMinuteDays = this.overrides.monitorMinuteDays;
+    if (this.overrides.monitorHourlyDays !== undefined) merged.monitorHourlyDays = this.overrides.monitorHourlyDays;
     if (this.overrides.autoCleanup !== undefined) merged.autoCleanup = this.overrides.autoCleanup;
     return {
       ...merged,
@@ -64,9 +72,13 @@ export class CleanupService {
     const config = this.getConfig();
     console.log(`[Cleanup] Starting with retention policy:`, {
       autoCleanup: config.autoCleanup,
-      minuteStats: `${config.connectionLogsDays} days`,
-      hourlyStats: `${config.hourlyStatsDays} days`,
-      healthLogs: `${config.healthLogDays} days`,
+      minuteStats: config.connectionLogsDays,
+      hourlyStats: config.hourlyStatsDays,
+      vendorHourlyStats: config.vendorHourlyDays,
+      vendorEndpointHourlyStats: config.vendorEndpointHourlyDays,
+      monitorMinuteStats: config.monitorMinuteDays,
+      monitorHourlyStats: config.monitorHourlyDays,
+      healthLogs: config.healthLogDays,
       interval: `${config.cleanupInterval} hours`,
     });
 
@@ -113,19 +125,21 @@ export class CleanupService {
 
       // Clean up old hourly stats
       const hourlyDeleted = this.cleanupHourlyStats();
+      const vendorDeleted = this.cleanupVendorStats();
+      const monitorDeleted = this.cleanupMonitorStats();
 
       // Clean up old health logs (independently overridable, defaults to hourlyStatsDays)
       this.cleanupHealthLogs();
 
       // Vacuum database to reclaim space (only if significant data deleted)
-      const totalDeleted = logsDeleted + hourlyDeleted;
+      const totalDeleted = logsDeleted + hourlyDeleted + vendorDeleted + monitorDeleted;
       if (totalDeleted > 10000) {
         console.log(`[Cleanup] Deleted ${totalDeleted} records, vacuuming database...`);
         this.db.vacuum();
       }
 
       const duration = Date.now() - startTime;
-      console.log(`[Cleanup] Completed in ${duration}ms: ${logsDeleted} logs, ${hourlyDeleted} hourly records deleted`);
+      console.log(`[Cleanup] Completed in ${duration}ms: ${logsDeleted} minute, ${hourlyDeleted} detail-hourly, ${vendorDeleted} vendor-hourly, ${monitorDeleted} monitor records deleted`);
     } catch (err) {
       console.error('[Cleanup] Failed:', err);
     } finally {
@@ -138,6 +152,7 @@ export class CleanupService {
    */
   private cleanupConnectionLogs(): number {
     const config = this.getConfig();
+    if (config.connectionLogsDays === 'forever') return 0;
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - config.connectionLogsDays);
     const cutoff = cutoffDate.toISOString();
@@ -150,6 +165,7 @@ export class CleanupService {
    */
   private cleanupHealthLogs(): void {
     const config = this.getConfig();
+    if (config.healthLogDays === 'forever') return;
     this.db.repos.health.pruneOldLogs(config.healthLogDays);
   }
 
@@ -158,11 +174,41 @@ export class CleanupService {
    */
   private cleanupHourlyStats(): number {
     const config = this.getConfig();
+    if (config.hourlyStatsDays === 'forever') return 0;
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - config.hourlyStatsDays);
     const cutoff = cutoffDate.toISOString().slice(0, 13) + ':00:00';
 
     return this.db.deleteOldHourlyStats(cutoff);
+  }
+
+  private cleanupVendorStats(): number {
+    const config = this.getConfig();
+    if (config.vendorHourlyDays === 'forever' && config.vendorEndpointHourlyDays === 'forever') return 0;
+    const vendorDays = config.vendorHourlyDays === 'forever' ? null : config.vendorHourlyDays;
+    const endpointDays = config.vendorEndpointHourlyDays === 'forever' ? null : config.vendorEndpointHourlyDays;
+    let deleted = 0;
+    if (vendorDays !== null) {
+      const cutoff = new Date(Date.now() - vendorDays * 24 * 60 * 60 * 1000)
+        .toISOString().slice(0, 13) + ':00:00';
+      deleted += this.db.deleteOldVendorHourlyStats(cutoff);
+    }
+    if (endpointDays !== null) {
+      const cutoff = new Date(Date.now() - endpointDays * 24 * 60 * 60 * 1000)
+        .toISOString().slice(0, 13) + ':00:00';
+      deleted += this.db.repos.vendor.deleteOldEndpointHourlyStats(cutoff);
+    }
+    return deleted;
+  }
+
+  private cleanupMonitorStats(): number {
+    const config = this.getConfig();
+    if (config.monitorMinuteDays === 'forever' && config.monitorHourlyDays === 'forever') return 0;
+    const minuteCutoff = config.monitorMinuteDays === 'forever' ? null : new Date(Date.now() - config.monitorMinuteDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 16) + ':00';
+    const hourlyCutoff = config.monitorHourlyDays === 'forever' ? null : new Date(Date.now() - config.monitorHourlyDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 13) + ':00:00';
+    return this.db.deleteOldMonitorStats(minuteCutoff, hourlyCutoff);
   }
 
   /**
@@ -185,6 +231,10 @@ export class CleanupService {
     this.db.updateRetentionConfig({
       connectionLogsDays: config.connectionLogsDays,
       hourlyStatsDays: config.hourlyStatsDays,
+      vendorHourlyDays: config.vendorHourlyDays,
+      vendorEndpointHourlyDays: config.vendorEndpointHourlyDays,
+      monitorMinuteDays: config.monitorMinuteDays,
+      monitorHourlyDays: config.monitorHourlyDays,
       autoCleanup: config.autoCleanup,
     });
 

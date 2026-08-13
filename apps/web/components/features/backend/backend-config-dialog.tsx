@@ -296,21 +296,39 @@ interface DbStats {
   totalConnectionsCount: number;
 }
 
-// Retention presets - inspired by AdGuard Home
+type RetentionPeriod = number | "forever";
+
+// Layered retention presets: fine-grained data expires first, compact aggregates last.
 const RETENTION_PRESETS = [
-  { key: "minimal", days: 3 },
-  { key: "standard", days: 7 },
-  { key: "extended", days: 30 },
-  { key: "maximum", days: 90 },
+  { key: "minimal", config: { connectionLogsDays: 3, hourlyStatsDays: 30, vendorHourlyDays: 365, vendorEndpointHourlyDays: 30, monitorMinuteDays: 7, monitorHourlyDays: 365 } },
+  { key: "standard", config: { connectionLogsDays: 7, hourlyStatsDays: 90, vendorHourlyDays: 365, vendorEndpointHourlyDays: 90, monitorMinuteDays: 30, monitorHourlyDays: 365 } },
+  { key: "extended", config: { connectionLogsDays: 30, hourlyStatsDays: 365, vendorHourlyDays: 730, vendorEndpointHourlyDays: 365, monitorMinuteDays: 90, monitorHourlyDays: 730 } },
+  { key: "maximum", config: { connectionLogsDays: "forever", hourlyStatsDays: "forever", vendorHourlyDays: "forever", vendorEndpointHourlyDays: "forever", monitorMinuteDays: "forever", monitorHourlyDays: "forever" } },
 ] as const;
 
 type PresetKey = (typeof RETENTION_PRESETS)[number]["key"];
 
 interface RetentionConfig {
-  connectionLogsDays: number;
-  hourlyStatsDays: number;
+  connectionLogsDays: RetentionPeriod;
+  hourlyStatsDays: RetentionPeriod;
+  vendorHourlyDays: RetentionPeriod;
+  vendorEndpointHourlyDays: RetentionPeriod;
+  monitorMinuteDays: RetentionPeriod;
+  monitorHourlyDays: RetentionPeriod;
   autoCleanup: boolean;
 }
+
+const RETENTION_FIELDS: Array<{
+  key: Exclude<keyof RetentionConfig, "autoCleanup">;
+  options: RetentionPeriod[];
+}> = [
+  { key: "connectionLogsDays", options: [3, 7, 30, 90, "forever"] },
+  { key: "hourlyStatsDays", options: [7, 30, 90, 365, "forever"] },
+  { key: "vendorHourlyDays", options: [30, 90, 365, 730, "forever"] },
+  { key: "vendorEndpointHourlyDays", options: [7, 30, 90, 365, 730, "forever"] },
+  { key: "monitorMinuteDays", options: [7, 30, 90, "forever"] },
+  { key: "monitorHourlyDays", options: [30, 90, 365, 730, "forever"] },
+];
 
 type BackendMode = "direct" | "agent";
 
@@ -665,7 +683,11 @@ export function BackendConfigDialog({
   // Data retention state
   const [retentionConfig, setRetentionConfig] = useState<RetentionConfig>({
     connectionLogsDays: 7,
-    hourlyStatsDays: 30,
+    hourlyStatsDays: 90,
+    vendorHourlyDays: 365,
+    vendorEndpointHourlyDays: 90,
+    monitorMinuteDays: 30,
+    monitorHourlyDays: 365,
     autoCleanup: true,
   });
   const [updatingRetention, setUpdatingRetention] = useState(false);
@@ -872,7 +894,7 @@ export function BackendConfigDialog({
 
   const handleUpdateRetention = async (
     key: keyof RetentionConfig,
-    value: number | boolean,
+    value: RetentionPeriod | boolean,
   ) => {
     try {
       setUpdatingRetention(true);
@@ -890,7 +912,9 @@ export function BackendConfigDialog({
   // Check which preset matches current config
   const getActivePreset = (): PresetKey | "custom" => {
     const preset = RETENTION_PRESETS.find(
-      (p) => p.days === retentionConfig.connectionLogsDays,
+      (item) => Object.entries(item.config).every(
+        ([key, value]) => retentionConfig[key as keyof typeof item.config] === value,
+      ),
     );
     return preset ? preset.key : "custom";
   };
@@ -903,30 +927,9 @@ export function BackendConfigDialog({
     try {
       setUpdatingRetention(true);
       const newConfig = {
-        connectionLogsDays: preset.days,
-        hourlyStatsDays: Math.min(preset.days * 4, 90), // Hourly stats = 4x detail days, max 90
+        ...preset.config,
         autoCleanup: true,
-      };
-      await api.updateRetentionConfig(newConfig);
-      setRetentionConfig(newConfig);
-      toast.success(t("retentionUpdated"));
-    } catch (error: any) {
-      toast.error(error.message || t("retentionUpdateFailed"));
-    } finally {
-      setUpdatingRetention(false);
-    }
-  };
-
-  // Apply custom days
-  const applyCustomDays = async (days: number) => {
-    const validDays = Math.max(1, Math.min(30, days));
-    try {
-      setUpdatingRetention(true);
-      const newConfig = {
-        connectionLogsDays: validDays,
-        hourlyStatsDays: Math.min(validDays * 4, 90),
-        autoCleanup: true,
-      };
+      } as RetentionConfig;
       await api.updateRetentionConfig(newConfig);
       setRetentionConfig(newConfig);
       toast.success(t("retentionUpdated"));
@@ -1436,15 +1439,26 @@ export function BackendConfigDialog({
     <>
       <div
         className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
-        <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              {isFirstTime ? t("firstTimeTitle") : t("title")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {isFirstTime ? t("firstTimeDescription") : t("description")}
-            </p>
+        <div className="relative w-full max-w-2xl">
+          {!isFirstTime && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-3 top-3 z-10 h-9 w-9 rounded-full bg-card/90"
+              onClick={() => onOpenChange(false)}
+              aria-label={commonT("close")}>
+              <X className="h-5 w-5" />
+            </Button>
+          )}
+          <Card className="w-full max-h-[90vh] overflow-y-auto">
+            <CardHeader className={!isFirstTime ? "pr-14" : undefined}>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                {isFirstTime ? t("firstTimeTitle") : t("title")}
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {isFirstTime ? t("firstTimeDescription") : t("description")}
+              </p>
 
             {/* Tabs */}
             <div className="flex gap-2 mt-4 flex-wrap">
@@ -2373,9 +2387,9 @@ export function BackendConfigDialog({
                       {t("dataRetention")}
                     </h4>
                     <span className="text-sm text-muted-foreground">
-                      {t("retentionDays", {
-                        days: retentionConfig.connectionLogsDays,
-                      })}
+                      {retentionConfig.connectionLogsDays === "forever"
+                        ? t("retentionForever")
+                        : t("retentionDays", { days: retentionConfig.connectionLogsDays })}
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground mb-3">
@@ -2407,30 +2421,30 @@ export function BackendConfigDialog({
                       );
                     })}
 
-                    {/* Custom Input */}
-                    <div
-                      className={cn(
-                        "flex items-center gap-1.5 px-2 py-1 rounded-md border transition-all",
-                        getActivePreset() === "custom"
-                          ? "border-primary bg-primary/10"
-                          : "border-border",
-                      )}>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={90}
-                        value={retentionConfig.connectionLogsDays}
-                        onChange={(e) => {
-                          const days = parseInt(e.target.value) || 1;
-                          applyCustomDays(Math.min(90, Math.max(1, days)));
-                        }}
-                        disabled={updatingRetention || isShowcase}
-                        className="w-14 h-6 text-sm text-center p-0 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        {commonT("days")}
-                      </span>
-                    </div>
+                  </div>
+
+                  <div className="grid gap-3 mt-4 sm:grid-cols-2">
+                    {RETENTION_FIELDS.map((field) => (
+                      <label key={field.key} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                        <span className="text-xs text-muted-foreground">{t(`retentionField.${field.key}`)}</span>
+                        <select
+                          value={String(retentionConfig[field.key])}
+                          onChange={(event) => {
+                            const value = event.target.value === "forever"
+                              ? "forever"
+                              : Number(event.target.value);
+                            handleUpdateRetention(field.key, value);
+                          }}
+                          disabled={updatingRetention || isShowcase}
+                          className="h-8 min-w-24 rounded-md border bg-background px-2 text-sm">
+                          {field.options.map((option) => (
+                            <option key={option} value={option}>
+                              {option === "forever" ? t("retentionForever") : `${option} ${commonT("days")}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
                   </div>
                 </div>
 
@@ -2477,16 +2491,9 @@ export function BackendConfigDialog({
               </div>
             ) : null}
 
-            {/* Close button for non-first-time */}
-            {!isFirstTime && (
-              <div className="flex justify-end pt-4 border-t">
-                <Button variant="outline" onClick={() => onOpenChange(false)}>
-                  {commonT("close")}
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <Dialog

@@ -215,6 +215,8 @@ interface TrackedConnection {
   totalDownload: number;
   counted: boolean;
   sourceIP?: string;
+  network?: string;
+  destinationPort?: string | number;
   lastSeen: number;
 }
 
@@ -438,6 +440,8 @@ export function createCollector(
         const domain = metadata.host || metadata.sniffHost || "";
         const ip = metadata.destinationIP || "";
         const sourceIP = metadata.sourceIP || "";
+        const network = metadata.network || "";
+        const destinationPort = metadata.destinationPort || "";
         const chains = Array.isArray(conn.chains) ? conn.chains : ["DIRECT"];
         const rule = conn.rule || "Match";
         const rulePayload = conn.rulePayload || "";
@@ -460,6 +464,8 @@ export function createCollector(
             totalDownload: conn.download,
             counted: hasInitialTraffic,
             sourceIP,
+            network,
+            destinationPort,
             lastSeen: now,
           });
 
@@ -478,6 +484,8 @@ export function createCollector(
               connections,
               sourceIP,
               timestampMs: now,
+              network,
+              destinationPort,
             });
             realtimeStore.recordTraffic(
               id,
@@ -557,6 +565,8 @@ export function createCollector(
               connections,
               sourceIP: existing.sourceIP,
               timestampMs: now,
+              network: existing.network,
+              destinationPort: existing.destinationPort,
             });
             realtimeStore.recordTraffic(
               id,

@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "migrate:sqlite-to-ch": "tsx src/scripts/migrate-sqlite-to-clickhouse.ts",
     "verify:sqlite-vs-ch": "tsx src/scripts/verify-sqlite-clickhouse.ts",
+    "benchmark:home-sqlite": "tsx src/scripts/benchmark-home-sqlite.ts",
     "lint": "eslint src/",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -20,6 +21,7 @@
     "dotenv": "^17.4.2",
     "fastify": "^5.8.5",
     "maxmind": "^5.0.6",
+    "tldts": "^7.0.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {

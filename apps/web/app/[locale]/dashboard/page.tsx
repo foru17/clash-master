@@ -108,6 +108,7 @@ export default function DashboardPage() {
             activeBackendId={activeBackendId}
             backendStatus={backendStatus}
             onNavigate={(tab) => setActiveTab(tab as TabId)}
+            onRefresh={() => refreshNow(true)}
           />
         </div>
       </main>

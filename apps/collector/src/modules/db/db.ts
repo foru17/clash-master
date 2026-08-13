@@ -21,6 +21,8 @@ import {
   DomainRepository,
   BackendRepository,
   HealthRepository,
+  VendorRepository,
+  MonitorRepository,
 } from '../../database/repositories/index.js';
 
 export interface TrafficUpdate {
@@ -35,6 +37,8 @@ export interface TrafficUpdate {
   connections?: number;
   sourceIP?: string;
   timestampMs?: number;
+  network?: string;
+  destinationPort?: string | number;
 }
 
 export interface BackendConfig {
@@ -102,6 +106,8 @@ export class StatsDatabase {
     domain: DomainRepository;
     backend: BackendRepository;
     health: HealthRepository;
+    vendor: VendorRepository;
+    monitor: MonitorRepository;
   };
 
   constructor(dbPath = 'stats.db') {
@@ -123,6 +129,8 @@ export class StatsDatabase {
       domain: new DomainRepository(this.db),
       backend: new BackendRepository(this.db),
       health: new HealthRepository(this.db),
+      vendor: new VendorRepository(this.db),
+      monitor: new MonitorRepository(this.db),
     };
   }
 
@@ -155,6 +163,25 @@ export class StatsDatabase {
     // Apply all schema statements from the single source of truth
     for (const stmt of getAllSchemaStatements()) {
       this.db.exec(stmt);
+    }
+
+    // Vendor rule provenance was added after the first vendor release. Keep
+    // migrations explicit so existing local databases remain usable.
+    const vendorRuleColumns = this.db.prepare(
+      `PRAGMA table_info(vendor_domain_rules)`,
+    ).all() as Array<{ name: string }>;
+    const existingVendorRuleColumns = new Set(vendorRuleColumns.map((column) => column.name));
+    const vendorRuleMigrations = [
+      { name: 'source', sql: `ALTER TABLE vendor_domain_rules ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'catalog', 'builtin'))` },
+      { name: 'source_key', sql: `ALTER TABLE vendor_domain_rules ADD COLUMN source_key TEXT` },
+      { name: 'source_revision', sql: `ALTER TABLE vendor_domain_rules ADD COLUMN source_revision TEXT` },
+      { name: 'confidence', sql: `ALTER TABLE vendor_domain_rules ADD COLUMN confidence TEXT NOT NULL DEFAULT 'high' CHECK (confidence IN ('high', 'medium', 'low'))` },
+    ];
+    for (const migration of vendorRuleMigrations) {
+      if (!existingVendorRuleColumns.has(migration.name)) {
+        this.db.exec(migration.sql);
+        console.log(`[DB] Migration: Added ${migration.name} to vendor_domain_rules`);
+      }
     }
 
     // Drop legacy (total_download + total_upload) expression indexes: the
@@ -1012,7 +1039,15 @@ export class StatsDatabase {
   getConnectionLogsCount(backendId: number) { return this.repos.config.getConnectionLogsCount(backendId); }
   getTotalConnectionLogsCount() { return this.repos.config.getTotalConnectionLogsCount(); }
   getRetentionConfig() { return this.repos.config.getRetentionConfig(); }
-  updateRetentionConfig(updates: { connectionLogsDays?: number; hourlyStatsDays?: number; autoCleanup?: boolean }) { return this.repos.config.updateRetentionConfig(updates); }
+  updateRetentionConfig(updates: {
+    connectionLogsDays?: number | 'forever';
+    hourlyStatsDays?: number | 'forever';
+    vendorHourlyDays?: number | 'forever';
+    vendorEndpointHourlyDays?: number | 'forever';
+    monitorMinuteDays?: number | 'forever';
+    monitorHourlyDays?: number | 'forever';
+    autoCleanup?: boolean;
+  }) { return this.repos.config.updateRetentionConfig(updates); }
   getGeoLookupConfig(): GeoLookupConfig { return this.repos.config.getGeoLookupConfig(); }
   updateGeoLookupConfig(updates: { provider?: GeoLookupProvider; onlineApiUrl?: string }): GeoLookupConfig {
     return this.repos.config.updateGeoLookupConfig(updates);
@@ -1021,7 +1056,19 @@ export class StatsDatabase {
   deleteOldMinuteStats(cutoff: string) { return this.repos.config.deleteOldMinuteStats(cutoff); }
   deleteOldConnectionLogs(cutoff: string) { return this.repos.config.deleteOldConnectionLogs(cutoff); }
   deleteOldHourlyStats(cutoff: string) { return this.repos.config.deleteOldHourlyStats(cutoff); }
+  deleteOldVendorHourlyStats(cutoff: string) { return this.repos.config.deleteOldVendorHourlyStats(cutoff); }
+  deleteOldMonitorStats(minuteCutoff: string | null, hourlyCutoff: string | null) {
+    return this.repos.config.deleteOldMonitorStats(minuteCutoff, hourlyCutoff);
+  }
   getCleanupStats() { return this.repos.config.getCleanupStats(); }
+
+  // Vendor analytics
+  getVendors() { return this.repos.vendor.getVendors(); }
+  createVendor(input: Parameters<VendorRepository['createVendor']>[0]) { return this.repos.vendor.createVendor(input); }
+  updateVendor(id: number, input: Parameters<VendorRepository['updateVendor']>[1]) { return this.repos.vendor.updateVendor(id, input); }
+  getVendorStats(backendId: number, start: string, end: string, sourceIP?: string) {
+    return this.repos.vendor.getStats(backendId, start, end, sourceIP);
+  }
 
   // Backend
   createBackend(backend: { name: string; url: string; token?: string; type?: 'clash' | 'surge' }) { return this.repos.backend.createBackend(backend); }

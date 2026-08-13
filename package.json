@@ -1,7 +1,7 @@
 {
-  "name": "neko-master",
-  "version": "1.4.0",
-  "description": "Modern traffic analytics for edge gateways",
+  "name": "home-network-monitor",
+  "version": "1.0.0",
+  "description": "Home network traffic and availability monitoring",
   "private": true,
   "workspaces": [
     "apps/*",

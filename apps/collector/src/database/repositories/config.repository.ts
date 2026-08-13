@@ -9,9 +9,15 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { BaseRepository } from './base.repository.js';
 
+type RetentionPeriod = number | 'forever';
+
 interface DatabaseRetentionConfig {
-  connectionLogsDays: number;
-  hourlyStatsDays: number;
+  connectionLogsDays: RetentionPeriod;
+  hourlyStatsDays: RetentionPeriod;
+  vendorHourlyDays: RetentionPeriod;
+  vendorEndpointHourlyDays: RetentionPeriod;
+  monitorMinuteDays: RetentionPeriod;
+  monitorHourlyDays: RetentionPeriod;
   autoCleanup: boolean;
 }
 
@@ -60,17 +66,30 @@ export class ConfigRepository extends BaseRepository {
       `SELECT value FROM app_config WHERE key = 'retention.auto_cleanup'`,
     ).get() as { value: string } | undefined;
 
+    const vendorHourlyDays = this.getRetentionPeriod('retention.vendor_hourly_days', 365);
+    const vendorEndpointHourlyDays = this.getRetentionPeriod('retention.vendor_endpoint_hourly_days', 90);
+    const monitorMinuteDays = this.getRetentionPeriod('retention.monitor_minute_days', 30);
+    const monitorHourlyDays = this.getRetentionPeriod('retention.monitor_hourly_days', 365);
+
     return {
-      connectionLogsDays: parseInt(connectionLogsDays?.value || '7', 10),
-      hourlyStatsDays: parseInt(hourlyStatsDays?.value || '30', 10),
+      connectionLogsDays: this.parseRetentionValue(connectionLogsDays?.value, 7),
+      hourlyStatsDays: this.parseRetentionValue(hourlyStatsDays?.value, 30),
+      vendorHourlyDays,
+      vendorEndpointHourlyDays,
+      monitorMinuteDays,
+      monitorHourlyDays,
       // Default ON when no row exists; an explicit '0' disables it.
       autoCleanup: autoCleanup ? autoCleanup.value !== '0' : true,
     };
   }
 
   updateRetentionConfig(updates: {
-    connectionLogsDays?: number;
-    hourlyStatsDays?: number;
+    connectionLogsDays?: RetentionPeriod;
+    hourlyStatsDays?: RetentionPeriod;
+    vendorHourlyDays?: RetentionPeriod;
+    vendorEndpointHourlyDays?: RetentionPeriod;
+    monitorMinuteDays?: RetentionPeriod;
+    monitorHourlyDays?: RetentionPeriod;
     autoCleanup?: boolean;
   }): DatabaseRetentionConfig {
     if (updates.connectionLogsDays !== undefined) {
@@ -85,6 +104,10 @@ export class ConfigRepository extends BaseRepository {
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
       `).run(updates.hourlyStatsDays.toString());
     }
+    this.setRetentionPeriod('retention.vendor_hourly_days', updates.vendorHourlyDays);
+    this.setRetentionPeriod('retention.vendor_endpoint_hourly_days', updates.vendorEndpointHourlyDays);
+    this.setRetentionPeriod('retention.monitor_minute_days', updates.monitorMinuteDays);
+    this.setRetentionPeriod('retention.monitor_hourly_days', updates.monitorHourlyDays);
     if (updates.autoCleanup !== undefined) {
       this.db.prepare(`
         INSERT INTO app_config (key, value) VALUES ('retention.auto_cleanup', ?)
@@ -92,6 +115,27 @@ export class ConfigRepository extends BaseRepository {
       `).run(updates.autoCleanup ? '1' : '0');
     }
     return this.getRetentionConfig();
+  }
+
+  private parseRetentionValue(value: string | undefined, fallback: number): RetentionPeriod {
+    if (value === 'forever') return 'forever';
+    const parsed = Number.parseInt(value || '', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  }
+
+  private getRetentionPeriod(key: string, fallback: number): RetentionPeriod {
+    const row = this.db.prepare(`SELECT value FROM app_config WHERE key = ?`).get(key) as
+      | { value: string }
+      | undefined;
+    return this.parseRetentionValue(row?.value, fallback);
+  }
+
+  private setRetentionPeriod(key: string, value: RetentionPeriod | undefined): void {
+    if (value === undefined) return;
+    this.db.prepare(`
+      INSERT INTO app_config (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+    `).run(key, value.toString());
   }
 
   // Geo lookup config
@@ -239,10 +283,20 @@ export class ConfigRepository extends BaseRepository {
         this.db.prepare(`DELETE FROM device_ip_stats WHERE backend_id = ?`).run(backendId);
         this.db.prepare(`DELETE FROM hourly_stats WHERE backend_id = ?`).run(backendId);
         this.db.prepare(`DELETE FROM backend_health_logs WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM vendor_hourly_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM vendor_daily_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM vendor_protocol_hourly_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM vendor_protocol_daily_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM vendor_endpoint_hourly_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM vendor_endpoint_daily_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM traffic_observability_hourly_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM traffic_observability_daily_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM unresolved_domain_daily_stats WHERE backend_id = ?`).run(backendId);
       } else {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
         const minuteCutoff = cutoff.toISOString().slice(0, 16) + ':00';
         const hourCutoff = cutoff.toISOString().slice(0, 13) + ':00:00';
+        const dayCutoff = cutoff.toISOString().slice(0, 10);
         const healthCutoff = cutoff.toISOString().slice(0, 16);
         const minuteResult = this.db.prepare(`DELETE FROM minute_stats WHERE backend_id = ? AND minute < ?`).run(backendId, minuteCutoff);
         deletedConnections = minuteResult.changes;
@@ -253,6 +307,15 @@ export class ConfigRepository extends BaseRepository {
         this.db.prepare(`DELETE FROM hourly_country_stats WHERE backend_id = ? AND hour < ?`).run(backendId, hourCutoff);
         this.db.prepare(`DELETE FROM connection_logs WHERE backend_id = ? AND timestamp < ?`).run(backendId, cutoff.toISOString());
         this.db.prepare(`DELETE FROM backend_health_logs WHERE backend_id = ? AND minute < ?`).run(backendId, healthCutoff);
+        this.db.prepare(`DELETE FROM vendor_hourly_stats WHERE backend_id = ? AND hour < ?`).run(backendId, hourCutoff);
+        this.db.prepare(`DELETE FROM vendor_daily_stats WHERE backend_id = ? AND day < ?`).run(backendId, dayCutoff);
+        this.db.prepare(`DELETE FROM vendor_protocol_hourly_stats WHERE backend_id = ? AND hour < ?`).run(backendId, hourCutoff);
+        this.db.prepare(`DELETE FROM vendor_protocol_daily_stats WHERE backend_id = ? AND day < ?`).run(backendId, dayCutoff);
+        this.db.prepare(`DELETE FROM vendor_endpoint_hourly_stats WHERE backend_id = ? AND hour < ?`).run(backendId, hourCutoff);
+        this.db.prepare(`DELETE FROM vendor_endpoint_daily_stats WHERE backend_id = ? AND day < ?`).run(backendId, dayCutoff);
+        this.db.prepare(`DELETE FROM traffic_observability_hourly_stats WHERE backend_id = ? AND hour < ?`).run(backendId, hourCutoff);
+        this.db.prepare(`DELETE FROM traffic_observability_daily_stats WHERE backend_id = ? AND day < ?`).run(backendId, dayCutoff);
+        this.db.prepare(`DELETE FROM unresolved_domain_daily_stats WHERE backend_id = ? AND day < ?`).run(backendId, dayCutoff);
       }
     } else {
       if (days === 0) {
@@ -282,10 +345,23 @@ export class ConfigRepository extends BaseRepository {
         this.db.prepare(`DELETE FROM device_ip_stats`).run();
         this.db.prepare(`DELETE FROM hourly_stats`).run();
         this.db.prepare(`DELETE FROM backend_health_logs`).run();
+        this.db.prepare(`DELETE FROM vendor_hourly_stats`).run();
+        this.db.prepare(`DELETE FROM vendor_daily_stats`).run();
+        this.db.prepare(`DELETE FROM vendor_protocol_hourly_stats`).run();
+        this.db.prepare(`DELETE FROM vendor_protocol_daily_stats`).run();
+        this.db.prepare(`DELETE FROM vendor_endpoint_hourly_stats`).run();
+        this.db.prepare(`DELETE FROM vendor_endpoint_daily_stats`).run();
+        this.db.prepare(`DELETE FROM traffic_observability_hourly_stats`).run();
+        this.db.prepare(`DELETE FROM traffic_observability_daily_stats`).run();
+        this.db.prepare(`DELETE FROM unresolved_domain_daily_stats`).run();
+        this.db.prepare(`DELETE FROM monitor_minute_stats`).run();
+        this.db.prepare(`DELETE FROM monitor_hourly_stats`).run();
+        this.db.prepare(`DELETE FROM monitor_incidents`).run();
       } else {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
         const minuteCutoff = cutoff.toISOString().slice(0, 16) + ':00';
         const hourCutoff = cutoff.toISOString().slice(0, 13) + ':00:00';
+        const dayCutoff = cutoff.toISOString().slice(0, 10);
         const healthCutoff = cutoff.toISOString().slice(0, 16);
         const minuteResult = this.db.prepare(`DELETE FROM minute_stats WHERE minute < ?`).run(minuteCutoff);
         deletedConnections = minuteResult.changes;
@@ -296,6 +372,21 @@ export class ConfigRepository extends BaseRepository {
         this.db.prepare(`DELETE FROM hourly_country_stats WHERE hour < ?`).run(hourCutoff);
         this.db.prepare(`DELETE FROM connection_logs WHERE timestamp < ?`).run(cutoff.toISOString());
         this.db.prepare(`DELETE FROM backend_health_logs WHERE minute < ?`).run(healthCutoff);
+        this.db.prepare(`DELETE FROM vendor_hourly_stats WHERE hour < ?`).run(hourCutoff);
+        this.db.prepare(`DELETE FROM vendor_daily_stats WHERE day < ?`).run(dayCutoff);
+        this.db.prepare(`DELETE FROM vendor_protocol_hourly_stats WHERE hour < ?`).run(hourCutoff);
+        this.db.prepare(`DELETE FROM vendor_protocol_daily_stats WHERE day < ?`).run(dayCutoff);
+        this.db.prepare(`DELETE FROM vendor_endpoint_hourly_stats WHERE hour < ?`).run(hourCutoff);
+        this.db.prepare(`DELETE FROM vendor_endpoint_daily_stats WHERE day < ?`).run(dayCutoff);
+        this.db.prepare(`DELETE FROM traffic_observability_hourly_stats WHERE hour < ?`).run(hourCutoff);
+        this.db.prepare(`DELETE FROM traffic_observability_daily_stats WHERE day < ?`).run(dayCutoff);
+        this.db.prepare(`DELETE FROM unresolved_domain_daily_stats WHERE day < ?`).run(dayCutoff);
+        this.db.prepare(`DELETE FROM monitor_minute_stats WHERE minute < ?`).run(minuteCutoff);
+        this.db.prepare(`DELETE FROM monitor_hourly_stats WHERE hour < ?`).run(hourCutoff);
+        this.db.prepare(`
+          DELETE FROM monitor_incidents
+          WHERE status = 'resolved' AND COALESCE(ended_at, started_at) < ?
+        `).run(cutoff.toISOString());
       }
     }
 
@@ -349,6 +440,29 @@ export class ConfigRepository extends BaseRepository {
     this.db.prepare(`DELETE FROM hourly_dim_stats WHERE hour < ?`).run(cutoff);
     this.db.prepare(`DELETE FROM hourly_country_stats WHERE hour < ?`).run(cutoff);
     return this.db.prepare(`DELETE FROM hourly_stats WHERE hour < ?`).run(cutoff).changes;
+  }
+
+  deleteOldVendorHourlyStats(cutoff: string): number {
+    const cutoffDay = cutoff.slice(0, 10);
+    const remove = this.db.transaction(() => {
+      let changes = 0;
+      changes += this.db.prepare(`DELETE FROM vendor_hourly_stats WHERE hour < ?`).run(cutoff).changes;
+      changes += this.db.prepare(`DELETE FROM vendor_protocol_hourly_stats WHERE hour < ?`).run(cutoff).changes;
+      changes += this.db.prepare(`DELETE FROM traffic_observability_hourly_stats WHERE hour < ?`).run(cutoff).changes;
+      changes += this.db.prepare(`DELETE FROM unresolved_domain_daily_stats WHERE day < ?`).run(cutoffDay).changes;
+      return changes;
+    });
+    return remove();
+  }
+
+  deleteOldMonitorStats(minuteCutoff: string | null, hourlyCutoff: string | null): number {
+    const minute = minuteCutoff
+      ? this.db.prepare(`DELETE FROM monitor_minute_stats WHERE minute < ?`).run(minuteCutoff).changes
+      : 0;
+    const hourly = hourlyCutoff
+      ? this.db.prepare(`DELETE FROM monitor_hourly_stats WHERE hour < ?`).run(hourlyCutoff).changes
+      : 0;
+    return minute + hourly;
   }
 
   getCleanupStats(): {

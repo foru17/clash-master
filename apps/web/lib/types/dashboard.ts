@@ -20,4 +20,6 @@ export type TabId =
   | "proxies"
   | "rules"
   | "network"
+  | "vendors"
+  | "availability"
   | "health";
