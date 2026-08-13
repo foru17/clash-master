@@ -12,6 +12,7 @@ import type {
   VendorStatsResponse,
   VendorEndpointStatsResponse,
   VendorAutomationResponse,
+  VendorProbeResponse,
   AvailabilityMonitor,
   MonitorHistoryPoint,
   MonitorIncident,
@@ -690,6 +691,9 @@ export const api = {
 
   getVendorAutomation: (backendId: number) =>
     fetchJson<VendorAutomationResponse>(buildUrl(`${API_BASE}/vendors/automation`, { backendId })),
+
+  probeVendorDomains: (backendId: number, domains: string[]) =>
+    fetchJson<VendorProbeResponse>(`${API_BASE}/vendors/probe`, 'POST', { backendId, domains }),
 
   syncVendorCatalog: () =>
     fetchJson<{

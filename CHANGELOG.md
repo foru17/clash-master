@@ -5,6 +5,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.0.3] - 2026-08-14
+
+### 新增
+
+- Unknown 候选支持手动域名探测，综合 DNS、HTTPS 页面元数据与 RDAP/WHOIS 线索生成厂商建议。
+- 探测结果支持确认后预填并加入手动域名规则，并限制只能探测当前 Unknown 候选，避免任意地址探测。
+
 ## [1.0.1] - 2026-08-13
 
 ### 修复

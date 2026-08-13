@@ -23,7 +23,7 @@ import { BackendService, backendController } from '../backend/index.js';
 import { StatsService, statsController } from '../stats/index.js';
 import { AuthService, authController } from '../auth/index.js';
 import { configController } from '../config/index.js';
-import { VendorCatalogService, VendorIPEnrichmentService, vendorController } from '../vendor/index.js';
+import { VendorCatalogService, VendorIPEnrichmentService, VendorProbeService, vendorController } from '../vendor/index.js';
 import { MonitorService, monitorController } from '../monitor/index.js';
 
 // Extend Fastify instance to include services
@@ -36,6 +36,7 @@ declare module 'fastify' {
     monitorService: MonitorService;
     vendorCatalogService: VendorCatalogService;
     vendorIPEnrichmentService: VendorIPEnrichmentService;
+    vendorProbeService: VendorProbeService;
     clearAgentRuntimeState?: (backendId?: number) => void;
     notifyBackendDataCleared?: (backendId: number) => void;
   }
@@ -50,6 +51,7 @@ export interface AppOptions {
   geoService?: GeoIPService;
   vendorCatalogService?: VendorCatalogService;
   vendorIPEnrichmentService?: VendorIPEnrichmentService;
+  vendorProbeService?: VendorProbeService;
   autoListen?: boolean;
   onTrafficIngested?: (backendId: number) => void;
   onBackendDataCleared?: (backendId: number) => void;
@@ -115,6 +117,7 @@ export async function createApp(options: AppOptions) {
     geoService,
     vendorCatalogService: providedVendorCatalogService,
     vendorIPEnrichmentService: providedVendorIPEnrichmentService,
+    vendorProbeService: providedVendorProbeService,
     autoListen = true,
     onTrafficIngested,
     onBackendDataCleared,
@@ -357,6 +360,7 @@ export async function createApp(options: AppOptions) {
   const vendorCatalogService = providedVendorCatalogService ?? new VendorCatalogService(db);
   const vendorIPEnrichmentService =
     providedVendorIPEnrichmentService ?? new VendorIPEnrichmentService(db, geoService);
+  const vendorProbeService = providedVendorProbeService ?? new VendorProbeService(db);
 
   // Decorate Fastify instance with services
   app.decorate('backendService', backendService);
@@ -364,6 +368,7 @@ export async function createApp(options: AppOptions) {
   app.decorate('monitorService', monitorService);
   app.decorate('vendorCatalogService', vendorCatalogService);
   app.decorate('vendorIPEnrichmentService', vendorIPEnrichmentService);
+  app.decorate('vendorProbeService', vendorProbeService);
   app.decorate('authService', authService);
   app.decorate('db', db);
   app.decorate('realtimeStore', realtimeStore);
@@ -1424,6 +1429,7 @@ export class APIServer {
   private geoService?: GeoIPService;
   private vendorCatalogService?: VendorCatalogService;
   private vendorIPEnrichmentService?: VendorIPEnrichmentService;
+  private vendorProbeService?: VendorProbeService;
   private onTrafficIngested?: (backendId: number) => void;
   private onBackendDataCleared?: (backendId: number) => void;
 
@@ -1437,6 +1443,7 @@ export class APIServer {
     vendorIPEnrichmentService?: VendorIPEnrichmentService,
     onTrafficIngested?: (backendId: number) => void,
     onBackendDataCleared?: (backendId: number) => void,
+    vendorProbeService?: VendorProbeService,
   ) {
     this.port = port;
     this.db = db;
@@ -1445,6 +1452,7 @@ export class APIServer {
     this.geoService = geoService;
     this.vendorCatalogService = vendorCatalogService;
     this.vendorIPEnrichmentService = vendorIPEnrichmentService;
+    this.vendorProbeService = vendorProbeService;
     this.onTrafficIngested = onTrafficIngested;
     this.onBackendDataCleared = onBackendDataCleared;
   }
@@ -1458,6 +1466,7 @@ export class APIServer {
       geoService: this.geoService,
       vendorCatalogService: this.vendorCatalogService,
       vendorIPEnrichmentService: this.vendorIPEnrichmentService,
+      vendorProbeService: this.vendorProbeService,
       onTrafficIngested: this.onTrafficIngested,
       onBackendDataCleared: this.onBackendDataCleared,
       logger: false,

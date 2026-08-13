@@ -781,6 +781,33 @@ export class VendorRepository extends BaseRepository {
       return { scannedRows: 0, hourlyRows: 0, dailyRows: 0, unresolvedRows: 0, durationMs: Date.now() - startedAt };
     }
 
+    type StoredProtocol = {
+      backend_id: number;
+      hour: string;
+      source_ip: string;
+      endpoint_type: 'domain' | 'ip';
+      endpoint: string;
+      transport: VendorProtocolTraffic['transport'];
+      application_protocol: VendorProtocolTraffic['applicationProtocol'];
+      confidence: VendorProtocolTraffic['confidence'];
+      traffic: number;
+    };
+    const storedProtocols = this.db.prepare(`
+      SELECT backend_id, hour, source_ip, endpoint_type, endpoint,
+             transport, application_protocol, confidence,
+             SUM(upload + download) AS traffic
+      FROM vendor_endpoint_hourly_stats
+      WHERE hour >= ?
+      GROUP BY backend_id, hour, source_ip, endpoint_type, endpoint,
+               transport, application_protocol, confidence
+      ORDER BY traffic DESC
+    `).all(cutoff) as StoredProtocol[];
+    const protocolByEndpoint = new Map<string, StoredProtocol>();
+    for (const protocol of storedProtocols) {
+      const key = `${protocol.backend_id}:${protocol.hour}:${protocol.source_ip}:${protocol.endpoint_type}:${protocol.endpoint}`;
+      if (!protocolByEndpoint.has(key)) protocolByEndpoint.set(key, protocol);
+    }
+
     const hourlyCutoffByBackend = new Map<number, string>();
     for (const row of rows) {
       const current = hourlyCutoffByBackend.get(row.backend_id);
@@ -809,6 +836,9 @@ export class VendorRepository extends BaseRepository {
       backendId: number; time: string; sourceIP: string; vendorId?: number;
       domainPresent?: number; registrableDomain?: string;
       endpointType?: 'domain' | 'ip'; endpoint?: string;
+      transport?: VendorProtocolTraffic['transport'];
+      applicationProtocol?: VendorProtocolTraffic['applicationProtocol'];
+      confidence?: VendorProtocolTraffic['confidence'];
       upload: number; download: number; connections: number;
     };
     const hourly = new Map<string, Aggregate>();
@@ -816,6 +846,8 @@ export class VendorRepository extends BaseRepository {
     const observabilityHourly = new Map<string, Aggregate>();
     const observabilityDaily = new Map<string, Aggregate>();
     const unresolved = new Map<string, Aggregate>();
+    const protocolHourly = new Map<string, Aggregate>();
+    const protocolDaily = new Map<string, Aggregate>();
     const endpointHourly = new Map<string, Aggregate>();
     const endpointDaily = new Map<string, Aggregate>();
     const add = (map: Map<string, Aggregate>, key: string, value: Aggregate) => {
@@ -836,24 +868,36 @@ export class VendorRepository extends BaseRepository {
       const vendorId = classifier.classify(domain);
       const endpointType: 'domain' | 'ip' = domainPresent === 1 ? 'domain' : 'ip';
       const endpoint = endpointType === 'domain' ? domain : (row.ip || '').trim();
+      const storedProtocol = protocolByEndpoint.get(
+        `${row.backend_id}:${row.hour}:${sourceIP}:${endpointType}:${endpoint}`,
+      );
+      const transport = storedProtocol?.transport ?? 'unknown';
+      const applicationProtocol = storedProtocol?.application_protocol ?? 'other';
+      const confidence = storedProtocol?.confidence ?? 'unknown';
       const base = {
         backendId: row.backend_id, sourceIP, upload: row.upload,
         download: row.download, connections: row.connections,
       };
       add(hourly, `${row.backend_id}:${row.hour}:${sourceIP}:${vendorId}`, { ...base, time: row.hour, vendorId });
       add(observabilityHourly, `${row.backend_id}:${row.hour}:${sourceIP}:${domainPresent}`, { ...base, time: row.hour, domainPresent });
+      add(protocolHourly, `${row.backend_id}:${row.hour}:${sourceIP}:${vendorId}:${transport}:${applicationProtocol}:${confidence}`, {
+        ...base, time: row.hour, vendorId, transport, applicationProtocol, confidence,
+      });
       if (endpoint) {
-        add(endpointHourly, `${row.backend_id}:${row.hour}:${sourceIP}:${vendorId}:${endpointType}:${endpoint}`, {
-          ...base, time: row.hour, vendorId, endpointType, endpoint,
+        add(endpointHourly, `${row.backend_id}:${row.hour}:${sourceIP}:${vendorId}:${endpointType}:${endpoint}:${transport}:${applicationProtocol}:${confidence}`, {
+          ...base, time: row.hour, vendorId, endpointType, endpoint, transport, applicationProtocol, confidence,
         });
       }
       const dailyCutoff = dailyCutoffByBackend.get(row.backend_id);
       if (dailyCutoff && day >= dailyCutoff) {
         add(daily, `${row.backend_id}:${day}:${sourceIP}:${vendorId}`, { ...base, time: day, vendorId });
         add(observabilityDaily, `${row.backend_id}:${day}:${sourceIP}:${domainPresent}`, { ...base, time: day, domainPresent });
+        add(protocolDaily, `${row.backend_id}:${day}:${sourceIP}:${vendorId}:${transport}:${applicationProtocol}:${confidence}`, {
+          ...base, time: day, vendorId, transport, applicationProtocol, confidence,
+        });
         if (endpoint) {
-          add(endpointDaily, `${row.backend_id}:${day}:${sourceIP}:${vendorId}:${endpointType}:${endpoint}`, {
-            ...base, time: day, vendorId, endpointType, endpoint,
+          add(endpointDaily, `${row.backend_id}:${day}:${sourceIP}:${vendorId}:${endpointType}:${endpoint}:${transport}:${applicationProtocol}:${confidence}`, {
+            ...base, time: day, vendorId, endpointType, endpoint, transport, applicationProtocol, confidence,
           });
         }
         if (domainPresent === 1 && classifier.isUnknown(vendorId)) {
@@ -874,6 +918,8 @@ export class VendorRepository extends BaseRepository {
         this.db.prepare(`DELETE FROM vendor_daily_stats WHERE backend_id = ? AND day >= ?`).run(backendId, dailyCutoff);
         this.db.prepare(`DELETE FROM traffic_observability_hourly_stats WHERE backend_id = ? AND hour >= ?`).run(backendId, hourlyCutoff);
         this.db.prepare(`DELETE FROM traffic_observability_daily_stats WHERE backend_id = ? AND day >= ?`).run(backendId, dailyCutoff);
+        this.db.prepare(`DELETE FROM vendor_protocol_hourly_stats WHERE backend_id = ? AND hour >= ?`).run(backendId, hourlyCutoff);
+        this.db.prepare(`DELETE FROM vendor_protocol_daily_stats WHERE backend_id = ? AND day >= ?`).run(backendId, dailyCutoff);
         this.db.prepare(`DELETE FROM unresolved_domain_daily_stats WHERE backend_id = ? AND day >= ?`).run(backendId, dailyCutoff);
         this.db.prepare(`DELETE FROM vendor_endpoint_hourly_stats WHERE backend_id = ? AND hour >= ?`).run(backendId, hourlyCutoff);
         this.db.prepare(`DELETE FROM vendor_endpoint_daily_stats WHERE backend_id = ? AND day >= ?`).run(backendId, dailyCutoff);
@@ -903,6 +949,22 @@ export class VendorRepository extends BaseRepository {
         VALUES (@backendId, @time, @sourceIP, @domainPresent, @upload, @download, @connections)
       `);
       for (const value of observabilityDaily.values()) observabilityDailyStmt.run(value);
+      const protocolHourlyStmt = this.db.prepare(`
+        INSERT INTO vendor_protocol_hourly_stats
+          (backend_id, hour, source_ip, vendor_id, transport, application_protocol,
+           confidence, upload, download, connections)
+        VALUES (@backendId, @time, @sourceIP, @vendorId, @transport,
+                @applicationProtocol, @confidence, @upload, @download, @connections)
+      `);
+      for (const value of protocolHourly.values()) protocolHourlyStmt.run(value);
+      const protocolDailyStmt = this.db.prepare(`
+        INSERT INTO vendor_protocol_daily_stats
+          (backend_id, day, source_ip, vendor_id, transport, application_protocol,
+           confidence, upload, download, connections)
+        VALUES (@backendId, @time, @sourceIP, @vendorId, @transport,
+                @applicationProtocol, @confidence, @upload, @download, @connections)
+      `);
+      for (const value of protocolDaily.values()) protocolDailyStmt.run(value);
       const unresolvedStmt = this.db.prepare(`
         INSERT INTO unresolved_domain_daily_stats
           (backend_id, day, source_ip, registrable_domain, upload, download, connections)
@@ -914,7 +976,7 @@ export class VendorRepository extends BaseRepository {
           (backend_id, hour, source_ip, vendor_id, endpoint_type, endpoint,
            transport, application_protocol, confidence, upload, download, connections)
         VALUES (@backendId, @time, @sourceIP, @vendorId, @endpointType, @endpoint,
-                'unknown', 'other', 'unknown', @upload, @download, @connections)
+                @transport, @applicationProtocol, @confidence, @upload, @download, @connections)
       `);
       for (const value of endpointHourly.values()) endpointHourlyStmt.run(value);
       const endpointDailyStmt = this.db.prepare(`
@@ -922,7 +984,7 @@ export class VendorRepository extends BaseRepository {
           (backend_id, day, source_ip, vendor_id, endpoint_type, endpoint,
            transport, application_protocol, confidence, upload, download, connections)
         VALUES (@backendId, @time, @sourceIP, @vendorId, @endpointType, @endpoint,
-                'unknown', 'other', 'unknown', @upload, @download, @connections)
+                @transport, @applicationProtocol, @confidence, @upload, @download, @connections)
       `);
       for (const value of endpointDaily.values()) endpointDailyStmt.run(value);
     });

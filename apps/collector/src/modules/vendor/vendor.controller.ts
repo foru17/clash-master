@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { VendorInput } from '../../database/repositories/vendor.repository.js';
+import { getRegistrableDomain } from '../../database/registrable-domain.js';
 
 function parseId(value: unknown): number | null {
   const parsed = Number.parseInt(String(value), 10);
@@ -43,6 +44,38 @@ export const vendorController: FastifyPluginAsync = async (
     } catch (error) {
       return reply.status(502).send({
         error: error instanceof Error ? error.message : 'Unable to load vendor automation status',
+      });
+    }
+  });
+
+  fastify.post('/probe', async (request, reply) => {
+    if (fastify.authService.isShowcaseMode()) {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+    const body = (request.body || {}) as { backendId?: unknown; domains?: unknown };
+    const backendId = parseId(body.backendId);
+    if (!backendId || !fastify.db.getBackend(backendId)) {
+      return reply.status(400).send({ error: 'A valid backendId is required' });
+    }
+    if (!Array.isArray(body.domains) || body.domains.length === 0 || body.domains.length > 50) {
+      return reply.status(400).send({ error: 'domains must contain between 1 and 50 candidates' });
+    }
+    const candidateDomains = new Set(
+      fastify.db.repos.vendor.getUnknownCandidates(backendId, 30, 200)
+        .map((candidate) => candidate.registrableDomain),
+    );
+    const domains = body.domains
+      .map((domain) => getRegistrableDomain(String(domain)))
+      .filter((domain, index, all) => Boolean(domain) && all.indexOf(domain) === index)
+      .filter((domain) => candidateDomains.has(domain));
+    if (domains.length === 0) {
+      return reply.status(400).send({ error: 'Only current unknown candidates can be probed' });
+    }
+    try {
+      return await fastify.vendorProbeService.probe(domains);
+    } catch (error) {
+      return reply.status(502).send({
+        error: error instanceof Error ? error.message : 'Unable to probe vendor domain',
       });
     }
   });

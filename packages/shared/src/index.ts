@@ -198,6 +198,41 @@ export interface UnknownVendorCandidate {
   lastSeen: string;
 }
 
+export interface VendorProbeSuggestion {
+  vendorId: number;
+  vendorName: string;
+  confidence: "high" | "medium";
+  reasons: string[];
+}
+
+export interface VendorProbeResult {
+  domain: string;
+  normalizedDomain: string;
+  dns: {
+    addresses: string[];
+    cnames: string[];
+    error: string | null;
+  };
+  http: {
+    status: number | null;
+    finalUrl: string | null;
+    title: string | null;
+    server: string | null;
+    error: string | null;
+  };
+  rdap: {
+    registrar: string | null;
+    organization: string | null;
+    country: string | null;
+    error: string | null;
+  };
+  suggestions: VendorProbeSuggestion[];
+}
+
+export interface VendorProbeResponse {
+  results: VendorProbeResult[];
+}
+
 export interface VendorCatalogState {
   sourceKey: string;
   sourceUrl: string;

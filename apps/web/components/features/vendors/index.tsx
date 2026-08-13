@@ -16,9 +16,12 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Trash2,
   TriangleAlert,
+  X,
 } from "lucide-react";
+import type { VendorProbeResult } from "@neko-master/shared";
 import { toast } from "sonner";
 import { api, type TimeRange } from "@/lib/api";
 import { getVendorEndpointsQueryKey, getVendorStatsQueryKey } from "@/lib/stats-query-keys";
@@ -54,12 +57,16 @@ interface ManualRuleRow {
 
 interface ManualRuleEditorState {
   ruleId: number | null;
+  replaceExisting: boolean;
   vendorId: number;
   customVendorName: string;
   customVendorColor: string;
-  pattern: string;
-  matchType: "exact" | "suffix";
-  priority: number;
+  rules: Array<{
+    id?: number;
+    pattern: string;
+    matchType: "exact" | "suffix";
+    priority: number;
+  }>;
 }
 
 export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorContentProps) {
@@ -71,6 +78,8 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
   const [endpointLimit, setEndpointLimit] = useState(10);
   const [ruleEditor, setRuleEditor] = useState<ManualRuleEditorState | null>(null);
   const [deletingRule, setDeletingRule] = useState<ManualRuleRow | null>(null);
+  const [probeDomain, setProbeDomain] = useState<string | null>(null);
+  const [probeResult, setProbeResult] = useState<VendorProbeResult | null>(null);
   const stableRange = useStableTimeRange(timeRange, { roundToMinute: true });
   const queryRange = stableRange ?? timeRange;
   const query = useQuery({
@@ -117,15 +126,39 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
       ]);
     },
   });
+  const probeMutation = useMutation({
+    mutationFn: (domain: string) => api.probeVendorDomains(activeBackendId!, [domain]),
+    onSuccess: (response) => setProbeResult(response.results[0] ?? null),
+    onError: () => toast.error(t("probeFailed")),
+  });
+  const openProbe = (domain: string) => {
+    setProbeDomain(domain);
+    setProbeResult(null);
+    probeMutation.mutate(domain);
+  };
+  const addProbeRule = (result: VendorProbeResult, vendorId: number) => {
+    setProbeDomain(null);
+    setProbeResult(null);
+    probeMutation.reset();
+    setRuleEditor({
+      ruleId: null,
+      replaceExisting: false,
+      vendorId,
+      customVendorName: "",
+      customVendorColor: "#64748b",
+      rules: [{ pattern: result.normalizedDomain, matchType: "suffix", priority: 100 }],
+    });
+  };
   const saveRuleMutation = useMutation({
     mutationFn: async (draft: ManualRuleEditorState) => {
-      const pattern = draft.pattern.trim().replace(/^=/, "").trim();
-      if (!pattern) throw new Error(t("manualRuleDomainRequired"));
-      const normalizedRule = {
-        pattern,
-        matchType: draft.matchType,
-        priority: Math.max(1, Math.min(1000, Math.round(draft.priority || 100))),
-      };
+      const normalizedRules = draft.rules
+        .map((rule) => ({
+          pattern: rule.pattern.trim().replace(/^=/, "").trim(),
+          matchType: rule.matchType,
+          priority: Math.max(1, Math.min(1000, Math.round(rule.priority || 100))),
+        }))
+        .filter((rule) => rule.pattern);
+      if (!normalizedRules.length) throw new Error(t("manualRuleDomainRequired"));
       if (draft.vendorId === -1) {
         const name = draft.customVendorName.trim();
         if (!name) throw new Error(t("customVendorNameRequired"));
@@ -135,21 +168,21 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
           name,
           color: draft.customVendorColor || "#64748b",
           priority: 50,
-          rules: [normalizedRule],
+          rules: normalizedRules,
         });
         return api.reclassifyVendorHistory(30);
       }
       const vendor = vendorsQuery.data?.find((item) => item.id === draft.vendorId);
       if (!vendor) throw new Error(t("vendorNotFound"));
       const existing = vendor.rules
-        .filter((rule) => rule.source === "manual" && rule.id !== draft.ruleId)
+        .filter((rule) => rule.source === "manual")
         .map((rule) => ({
           pattern: rule.pattern,
           matchType: rule.matchType,
           priority: rule.priority,
         }));
       await api.updateVendor(vendor.id, {
-        rules: [...existing, normalizedRule],
+        rules: draft.replaceExisting ? normalizedRules : [...existing, ...normalizedRules],
       });
       return api.reclassifyVendorHistory(30);
     },
@@ -211,6 +244,20 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
       })))
     .sort((a, b) => a.vendorName.localeCompare(b.vendorName) || a.pattern.localeCompare(b.pattern)),
   [vendorsQuery.data]);
+  const manualRuleGroups = useMemo(() => {
+    const groups = new Map<number, { vendorId: number; vendorName: string; vendorColor: string; rules: ManualRuleRow[] }>();
+    for (const rule of manualRules) {
+      const group = groups.get(rule.vendorId) ?? {
+        vendorId: rule.vendorId,
+        vendorName: rule.vendorName,
+        vendorColor: rule.vendorColor,
+        rules: [],
+      };
+      group.rules.push(rule);
+      groups.set(rule.vendorId, group);
+    }
+    return [...groups.values()].sort((a, b) => a.vendorName.localeCompare(b.vendorName));
+  }, [manualRules]);
   const totalTraffic = query.data?.totals.reduce(
     (sum, item) => sum + item.upload + item.download,
     0,
@@ -427,7 +474,11 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
                                             </p>
                                           ) : null}
                                         </div>
-                                        <span className="text-muted-foreground">{t(`protocol.${endpoint.applicationProtocol}`)} · {endpoint.transport.toUpperCase()}</span>
+                                        <span className="text-muted-foreground">
+                                          {endpoint.applicationProtocol === "other" && endpoint.transport === "unknown"
+                                            ? t("protocolHistoricalUnavailable")
+                                            : `${t(`protocol.${endpoint.applicationProtocol}`)} · ${endpoint.transport.toUpperCase()}`}
+                                        </span>
                                         <span className="text-right tabular-nums">{formatBytes(endpointTraffic)}</span>
                                         <span className="text-right text-muted-foreground">{formatNumber(endpoint.connections)} · {formatNumber(endpoint.devices)} {t("devicesShort")}</span>
                                       </div>
@@ -480,6 +531,7 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
                       <TableHead className="text-right">{t("traffic")}</TableHead>
                       <TableHead className="text-right">{t("connections")}</TableHead>
                       <TableHead className="text-right">{t("devices")}</TableHead>
+                      <TableHead className="text-right">{t("actions")}</TableHead>
                     </TableRow></TableHeader>
                     <TableBody>
                       {automationQuery.data.unknownCandidates.slice(0, 12).map((candidate) => (
@@ -488,6 +540,11 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
                           <TableCell className="text-right tabular-nums">{formatBytes(candidate.upload + candidate.download)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatNumber(candidate.connections)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatNumber(candidate.devices)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="sm" onClick={() => openProbe(candidate.registrableDomain)} disabled={probeMutation.isPending}>
+                              <Search className="mr-1 h-3.5 w-3.5" />{t("probeDomain")}
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -508,12 +565,11 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
                 disabled={!editableVendors.length}
                 onClick={() => setRuleEditor({
                   ruleId: null,
+                  replaceExisting: false,
                   vendorId: 0,
                   customVendorName: "",
                   customVendorColor: "#64748b",
-                  pattern: "",
-                  matchType: "suffix",
-                  priority: 100,
+                  rules: [{ pattern: "", matchType: "suffix", priority: 100 }],
                 })}
               >
                 <Plus className="mr-2 h-4 w-4" />
@@ -529,23 +585,44 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
                 <Table>
                   <TableHeader><TableRow>
                     <TableHead>{t("vendor")}</TableHead>
-                    <TableHead>{t("manualRuleDomain")}</TableHead>
+                    <TableHead>{t("manualRuleDomains")}</TableHead>
                     <TableHead>{t("manualRuleMatchType")}</TableHead>
-                    <TableHead className="text-right">{t("manualRulePriority")}</TableHead>
+                    <TableHead className="text-right">{t("manualRuleCount")}</TableHead>
                     <TableHead className="w-[92px] text-right">{t("actions")}</TableHead>
                   </TableRow></TableHeader>
                   <TableBody>
-                    {manualRules.map((rule) => (
-                      <TableRow key={rule.id}>
+                    {manualRuleGroups.map((group) => (
+                      <TableRow key={group.vendorId}>
                         <TableCell>
                           <span className="inline-flex items-center">
-                            <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: rule.vendorColor }} />
-                            {rule.vendorName}
+                            <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: group.vendorColor }} />
+                            {group.vendorName}
                           </span>
                         </TableCell>
-                        <TableCell className="font-mono text-xs">{rule.pattern}</TableCell>
-                        <TableCell>{t(`manualRuleMatch.${rule.matchType}`)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{rule.priority}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          <div className="space-y-1">
+                            {group.rules.map((rule) => (
+                              <div key={rule.id} className="flex items-center gap-2">
+                                <span>{rule.pattern}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 text-destructive hover:text-destructive"
+                                  title={t("deleteManualRule")}
+                                  onClick={() => setDeletingRule(rule)}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1 text-xs">
+                            {group.rules.map((rule) => <div key={rule.id}>{t(`manualRuleMatch.${rule.matchType}`)} · {rule.priority}</div>)}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{group.rules.length}</TableCell>
                         <TableCell className="text-right">
                           <Button
                             variant="ghost"
@@ -553,25 +630,20 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
                             className="h-8 w-8"
                             title={t("editManualRule")}
                             onClick={() => setRuleEditor({
-                              ruleId: rule.id,
-                              vendorId: rule.vendorId,
+                              ruleId: group.rules[0]?.id ?? null,
+                              replaceExisting: true,
+                              vendorId: group.vendorId,
                               customVendorName: "",
                               customVendorColor: "#64748b",
-                              pattern: rule.pattern,
-                              matchType: rule.matchType,
-                              priority: rule.priority,
+                              rules: group.rules.map((rule) => ({
+                                id: rule.id,
+                                pattern: rule.pattern,
+                                matchType: rule.matchType,
+                                priority: rule.priority,
+                              })),
                             })}
                           >
                             <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                            title={t("deleteManualRule")}
-                            onClick={() => setDeletingRule(rule)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -610,7 +682,7 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
 
       <Dialog open={ruleEditor !== null} onOpenChange={(open) => !open && setRuleEditor(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{ruleEditor?.ruleId ? t("editManualRule") : t("addManualRule")}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{ruleEditor?.replaceExisting ? t("editManualRule") : t("addManualRule")}</DialogTitle></DialogHeader>
           {ruleEditor && <div className="space-y-4">
             <label className="block space-y-1.5 text-sm">
               <span>{t("vendor")}</span>
@@ -647,39 +719,55 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
               </label>
               <p className="col-span-2 text-xs text-muted-foreground">{t("customVendorHint")}</p>
             </div>}
-            <label className="block space-y-1.5 text-sm">
-              <span>{t("manualRuleDomain")}</span>
-              <input
-                value={ruleEditor.pattern}
-                onChange={(event) => setRuleEditor({ ...ruleEditor, pattern: event.target.value })}
-                className="h-10 w-full rounded-md border bg-background px-3 font-mono"
-                placeholder="example.com"
-                autoFocus
-              />
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block space-y-1.5 text-sm">
-                <span>{t("manualRuleMatchType")}</span>
-                <select
-                  value={ruleEditor.matchType}
-                  onChange={(event) => setRuleEditor({ ...ruleEditor, matchType: event.target.value as "exact" | "suffix" })}
-                  className="h-10 w-full rounded-md border bg-background px-3"
-                >
-                  <option value="suffix">{t("manualRuleMatch.suffix")}</option>
-                  <option value="exact">{t("manualRuleMatch.exact")}</option>
-                </select>
-              </label>
-              <label className="block space-y-1.5 text-sm">
-                <span>{t("manualRulePriority")}</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={ruleEditor.priority}
-                  onChange={(event) => setRuleEditor({ ...ruleEditor, priority: Number(event.target.value) })}
-                  className="h-10 w-full rounded-md border bg-background px-3"
-                />
-              </label>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">{t("manualRuleDomains")}</span>
+                <Button type="button" variant="outline" size="sm" onClick={() => setRuleEditor({
+                  ...ruleEditor,
+                  rules: [...ruleEditor.rules, { pattern: "", matchType: "suffix", priority: 100 }],
+                })}>
+                  <Plus className="mr-1 h-3.5 w-3.5" />{t("addDomain")}
+                </Button>
+              </div>
+              {ruleEditor.rules.map((rule, index) => (
+                <div key={rule.id ?? `new-${index}`} className="grid grid-cols-[minmax(0,1fr)_130px_82px_32px] gap-2 items-end rounded-lg border p-2">
+                  <label className="block space-y-1.5 text-sm">
+                    <span>{t("manualRuleDomain")}</span>
+                    <input
+                      value={rule.pattern}
+                      onChange={(event) => setRuleEditor({ ...ruleEditor, rules: ruleEditor.rules.map((item, itemIndex) => itemIndex === index ? { ...item, pattern: event.target.value } : item) })}
+                      className="h-10 w-full rounded-md border bg-background px-3 font-mono"
+                      placeholder="example.com"
+                      autoFocus={index === 0}
+                    />
+                  </label>
+                  <label className="block space-y-1.5 text-sm">
+                    <span>{t("manualRuleMatchType")}</span>
+                    <select
+                      value={rule.matchType}
+                      onChange={(event) => setRuleEditor({ ...ruleEditor, rules: ruleEditor.rules.map((item, itemIndex) => itemIndex === index ? { ...item, matchType: event.target.value as "exact" | "suffix" } : item) })}
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                    >
+                      <option value="suffix">{t("manualRuleMatch.suffix")}</option>
+                      <option value="exact">{t("manualRuleMatch.exact")}</option>
+                    </select>
+                  </label>
+                  <label className="block space-y-1.5 text-sm">
+                    <span>{t("manualRulePriority")}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={1000}
+                      value={rule.priority}
+                      onChange={(event) => setRuleEditor({ ...ruleEditor, rules: ruleEditor.rules.map((item, itemIndex) => itemIndex === index ? { ...item, priority: Number(event.target.value) } : item) })}
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                    />
+                  </label>
+                  <Button type="button" variant="ghost" size="icon" className="h-10 w-8 text-destructive" disabled={ruleEditor.rules.length === 1} onClick={() => setRuleEditor({ ...ruleEditor, rules: ruleEditor.rules.filter((_, itemIndex) => itemIndex !== index) })}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
             </div>
             <p className="text-xs text-muted-foreground">{t("manualRuleEditorHint")}</p>
           </div>}
@@ -687,11 +775,42 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
             <Button variant="outline" onClick={() => setRuleEditor(null)}>{t("cancel")}</Button>
             <Button
               onClick={() => ruleEditor && saveRuleMutation.mutate(ruleEditor)}
-              disabled={saveRuleMutation.isPending || !ruleEditor?.vendorId || !ruleEditor.pattern.trim()
+              disabled={saveRuleMutation.isPending || !ruleEditor?.vendorId || !ruleEditor.rules.some((rule) => rule.pattern.trim())
                 || (ruleEditor.vendorId === -1 && !ruleEditor.customVendorName.trim())}
             >
               {t("saveRules")}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={probeDomain !== null} onOpenChange={(open) => { if (!open) { setProbeDomain(null); setProbeResult(null); probeMutation.reset(); } }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>{t("probeDomainTitle")}</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">{probeDomain} · {t("probeDomainHint")}</p>
+          {probeMutation.isPending && <p className="py-8 text-center text-sm text-muted-foreground">{t("probeLoading")}</p>}
+          {probeResult && <div className="space-y-4 text-sm">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Evidence title={t("probeDns")} value={[...probeResult.dns.addresses, ...probeResult.dns.cnames].join(", ") || probeResult.dns.error || t("probeError")} />
+              <Evidence title={t("probeHttp")} value={[probeResult.http.status, probeResult.http.title, probeResult.http.server].filter(Boolean).join(" · ") || probeResult.http.error || t("probeError")} />
+              <Evidence title={t("probeRdap")} value={[probeResult.rdap.organization, probeResult.rdap.registrar, probeResult.rdap.country].filter(Boolean).join(" · ") || probeResult.rdap.error || t("probeError")} />
+              <Evidence title={t("probeFinalUrl")} value={probeResult.http.finalUrl || t("probeError")} />
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="mb-2 font-medium">{t("probeSuggestions")}</p>
+              <p className="mb-3 text-xs text-muted-foreground">{t("probeSuggestionHint")}</p>
+              {probeResult.suggestions.length === 0 && <p className="text-muted-foreground">{t("probeNoSuggestion")}</p>}
+              <div className="space-y-2">
+                {probeResult.suggestions.map((suggestion) => <div key={suggestion.vendorId} className="flex items-center justify-between gap-3 rounded-md bg-muted/30 p-2">
+                  <div><span className="font-medium">{suggestion.vendorName}</span><span className="ml-2 text-xs text-muted-foreground">{t(`probeConfidence.${suggestion.confidence}`)}</span><p className="text-xs text-muted-foreground">{suggestion.reasons.join(" · ")}</p></div>
+                  <Button size="sm" onClick={() => addProbeRule(probeResult, suggestion.vendorId)}>{t("addProbeRule")}</Button>
+                </div>)}
+              </div>
+            </div>
+          </div>}
+          <DialogFooter>
+            {probeResult && <Button variant="outline" onClick={() => addProbeRule(probeResult, 0)}>{t("addProbeRuleChoose")}</Button>}
+            <Button variant="outline" onClick={() => setProbeDomain(null)}>{t("cancel")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -719,6 +838,10 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
       </Dialog>
     </div>
   );
+}
+
+function Evidence({ title, value }: { title: string; value: string }) {
+  return <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">{title}</p><p className="mt-1 break-all font-mono text-xs">{value}</p></div>;
 }
 
 function formatPercent(value: number): string {
