@@ -6,7 +6,7 @@
 
 > Home Network Monitor is maintained at [zhangjf108/Home-Network-Monitor](https://github.com/zhangjf108/Home-Network-Monitor). It is derived from the MIT-licensed [foru17/neko-master](https://github.com/foru17/neko-master), with the upstream copyright and license retained.
 
-> **Current release focus (v1.0.1):** this fork currently focuses on two home-network models: the **Vendor Traffic Model** and the **Availability Monitoring Model**. The first answers “which device accessed which vendor, over which protocol, and with how much traffic”; the second answers “whether a network device or service is reachable, how fast it responds, and when it failed”.
+> **Current release focus (v1.0.3):** this fork currently focuses on two home-network models: the **Vendor Traffic Model** and the **Availability Monitoring Model**. The first answers “which device accessed which vendor, over which protocol, and with how much traffic”; the second answers “whether a network device or service is reachable, how fast it responds, and when it failed”. Unknown domains can now be manually probed using DNS, HTTPS metadata, and RDAP/WHOIS clues before they are added to a vendor rule.
 
 <p align="center">
   <b>See your network traffic clearly.</b><br>
