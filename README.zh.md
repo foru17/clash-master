@@ -1,7 +1,7 @@
 <p align="center">
-  <img src="./assets/icon-neko-master.png" width="200" alt="Home Net Monitor Logo" style="margin-bottom: 16px;">
+  <img src="./assets/icon-home-network-monitor.png" width="200" alt="Home Network Monitor Logo" style="margin-bottom: 16px;">
   <br>
-  <b style="font-size: 32px;">Home Net Monitor</b>
+  <b style="font-size: 32px;">Home Network Monitor</b>
 </p>
 
 <p align="center">
@@ -15,14 +15,14 @@
 
 > 家庭网络版已实现厂商级 365 天历史与轻量可用性监控。部署说明见 [家庭网络版部署指南](docs/home-network-deployment.zh.md)，容量基准见 [SQLite 容量与性能](docs/sqlite-capacity.zh.md)。
 
-> 本项目由 [zhangjf108/Home-Net-Monitor](https://github.com/zhangjf108/Home-Net-Monitor) 维护，基于 MIT 许可的 [foru17/neko-master](https://github.com/foru17/neko-master) 二次开发，并保留上游版权与许可声明。
+> 本项目由 [zhangjf108/Home-Network-Monitor](https://github.com/zhangjf108/Home-Network-Monitor) 维护，基于 MIT 许可的 [foru17/neko-master](https://github.com/foru17/neko-master) 二次开发，并保留上游版权与许可声明。
 
 <p align="center">
-  <a href="https://github.com/zhangjf108/Home-Net-Monitor/stargazers"><img src="https://img.shields.io/github/stars/zhangjf108/Home-Net-Monitor?style=flat-square&color=yellow" alt="Stars"></a>
+  <a href="https://github.com/zhangjf108/Home-Network-Monitor/stargazers"><img src="https://img.shields.io/github/stars/zhangjf108/Home-Network-Monitor?style=flat-square&color=yellow" alt="Stars"></a>
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/pulls/foru17/neko-master?style=flat-square&color=blue&logo=docker" alt="Docker Pulls"></a>
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/v/foru17/neko-master?style=flat-square&label=Docker&color=2496ED" alt="Docker Version"></a>
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/image-size/foru17/neko-master/latest?style=flat-square&logo=docker" alt="Image Size"></a>
-  <a href="https://github.com/zhangjf108/Home-Net-Monitor/blob/main/LICENSE"><img src="https://img.shields.io/github/license/zhangjf108/Home-Net-Monitor?style=flat-square&color=green" alt="License"></a>
+  <a href="https://github.com/zhangjf108/Home-Network-Monitor/blob/main/LICENSE"><img src="https://img.shields.io/github/license/zhangjf108/Home-Network-Monitor?style=flat-square&color=green" alt="License"></a>
   <img src="https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=node.js">
   <a href="https://github.com/foru17/neko-master/actions/workflows/docker-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/foru17/neko-master/docker-build.yml?style=flat-square&label=Docker%20CI" alt="Docker CI"></a>
   <a href="./docs/architecture.md"><img src="https://img.shields.io/badge/docs-architecture-0ea5e9?style=flat-square" alt="Architecture Docs"></a>
@@ -75,6 +75,7 @@ Neko Master 专注于对网络流量进行轻量、精确的分析与可视化�
 
 ## 📋 目录
 
+- [🏠 家庭网络监控增强](#-家庭网络监控增强)
 - [🚀 快速开始](#-快速开始)
 - [🤖 Agent 部署](#-agent-部署)
 - [📖 首次使用](#-首次使用)
@@ -90,6 +91,38 @@ Neko Master 专注于对网络流量进行轻量、精确的分析与可视化�
 - [🛠️ 技术栈](#-技术栈)
 - [📝 更新日志](./CHANGELOG.md)
 - [📄 许可证](#-许可证)
+
+## 🏠 家庭网络监控增强
+
+### 厂商流量
+
+- 从 OpenClash 实时连接中聚合终端、厂商、协议和域名/IP 流量，厂商小时统计默认保留 365 天。
+- 自动规则目录按日同步，并在目录版本变化后重算最近 30 天；手动域名规则优先于自动规则，同时支持直接创建自定义厂商。
+- 厂商详情按协议拆分流量，并可配置显示前 10、20 或 50 个域名/IP；Unknown 项会依次尝试域名、PTR 反查和 IP 地区信息，无法确认厂商时保留地区作为识别线索。
+- 设置页可分别配置原始连接、通用小时统计、厂商小时统计、域名/IP 小时统计的保留期，支持永久保存。
+
+### 可用性监控
+
+- 支持 ICMP、TCP、HTTP 和 DNS 探测，提供故障/恢复确认、最近事件和 Webhook 通知。
+- 每个监控 Card 同时展示可用率与状态历史，悬停状态柱可查看对应探测延时。
+- 数据库为空时可自动创建 14 个家庭网络基础监控项；可用性分钟历史默认保留 30 天、小时历史默认保留 365 天，也可在设置页调整为永久保存。
+
+### 关键环境变量
+
+```env
+HOME_NETWORK_SEED_MONITORS=1
+SQLITE_RETENTION_MINUTE_DAYS=7
+SQLITE_RETENTION_HOURLY_DAYS=30
+SQLITE_RETENTION_VENDOR_HOURLY_DAYS=365
+SQLITE_RETENTION_VENDOR_ENDPOINT_HOURLY_DAYS=90
+SQLITE_RETENTION_MONITOR_MINUTE_DAYS=30
+SQLITE_RETENTION_MONITOR_HOURLY_DAYS=365
+VENDOR_CATALOG_AUTO_UPDATE=1
+VENDOR_CATALOG_INTERVAL_HOURS=24
+VENDOR_CATALOG_BACKFILL_DAYS=30
+```
+
+保留期也可以在“设置 → 数据库”中按数据层分别调整；界面配置会持久化到 SQLite。
 
 ## 🚀 快速开始
 

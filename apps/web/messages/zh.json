@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "title": "Home Net Monitor - 家庭网络监控",
+    "title": "Home Network Monitor - 家庭网络监控",
     "description": "现代网关流量分析工具"
   },
   "nav": {
@@ -18,7 +18,7 @@
     "showcaseMode": "演示模式"
   },
   "header": {
-    "title": "Home Net Monitor",
+    "title": "HNM",
     "subtitle": "现代网关流量分析工具"
   },
   "dashboard": {
@@ -295,10 +295,10 @@
   "about": {
     "title": "关于",
     "version": "版本",
-    "projectName": "Home Net Monitor",
+    "projectName": "Home Network Monitor",
     "description": "家庭网络流量与可用性监控工具",
     "github": "GitHub",
-    "openSource": "Home Net Monitor",
+    "openSource": "Home Network Monitor",
     "basedOn": "应用源于",
     "upstreamProject": "Neko Master · foru17/neko-master",
     "license": "MIT 许可证",

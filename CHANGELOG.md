@@ -5,11 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
-## [Unreleased]
+## [1.0.0] - 2026-08-13
 
 ### 家庭网络监控增强
 
-- 项目品牌更新为 Home Net Monitor；关于页和 README 指向 `zhangjf108/Home-Net-Monitor`，并明确标注应用源于 MIT 许可的 `foru17/neko-master`。
+- 项目品牌更新为 Home Network Monitor（HNM），启用新的网络与可用性 Logo；关于页和 README 指向 `zhangjf108/Home-Network-Monitor`，并明确标注应用源于 MIT 许可的 `foru17/neko-master`。
+- 关于页加宽并优化长链接布局；设置页关闭按钮移动到弹窗右上角，长页面无需滚动到底部即可关闭。
 - “待识别候选”增加解释：它是近 30 天仍为 Unknown 的根域名人工处理队列，不代表已确认厂商，也不会自动创建规则。
 - 厂商域名/IP 下钻不再固定 Top 10，可在页面选择显示 10、20 或 50 条，接口和查询缓存键同步按选择生效。
 - 厂商规则每日自动同步 22 个选定的 V2Fly 分类，记录 Git revision，隔离冲突并保留最后一次成功版本；手工规则保持最高优先级。

@@ -44,7 +44,7 @@ interface NavigationProps {
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
 const GITHUB_REPO =
-  process.env.NEXT_PUBLIC_GITHUB_REPO || "zhangjf108/Home-Net-Monitor";
+  process.env.NEXT_PUBLIC_GITHUB_REPO || "zhangjf108/Home-Network-Monitor";
 const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
 const UPSTREAM_URL = "https://github.com/foru17/neko-master";
 
@@ -134,7 +134,7 @@ export function Navigation({
           <div className="w-14 h-14 rounded-xl shrink-0 flex items-center justify-center overflow-hidden hover:opacity-80">
             <Image
               src="/logo.png"
-              alt="Home Net Monitor"
+              alt="Home Network Monitor"
               width={40}
               height={40}
               className="w-full h-full object-cover"
@@ -341,7 +341,7 @@ export function Navigation({
           onClick={(e) => {
             if (e.target === e.currentTarget) setAboutOpen(false);
           }}>
-          <Card className="w-full max-w-[420px]">
+          <Card className="w-full max-w-[560px]">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Info className="w-5 h-5" />
@@ -360,7 +360,7 @@ export function Navigation({
                 <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
                   <Image
                     src="/logo.png"
-                    alt="Home Net Monitor"
+                    alt="Home Network Monitor"
                     width={64}
                     height={64}
                     className="w-full h-full object-cover"
@@ -467,7 +467,7 @@ export function Navigation({
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-between p-3 rounded-xl bg-secondary/50 border border-border/50 hover:bg-secondary/80 hover:border-primary/30 transition-all group">
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
                     <svg
                       viewBox="0 0 24 24"
                       className="w-5 h-5 fill-foreground shrink-0"
@@ -478,7 +478,7 @@ export function Navigation({
                       <p className="text-sm font-medium">
                         {aboutT("openSource")}
                       </p>
-                      <p className="text-xs text-muted-foreground truncate">
+                      <p className="text-xs text-muted-foreground break-all">
                         {GITHUB_URL}
                       </p>
                     </div>

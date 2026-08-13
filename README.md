@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="./assets/icon-neko-master.png" width="200" alt="Home Net Monitor Logo" style="margin-bottom: 16px;">
+  <img src="./assets/icon-home-network-monitor.png" width="200" alt="Home Network Monitor Logo" style="margin-bottom: 16px;">
   <br>
-  <b style="font-size: 32px;">Home Net Monitor</b>
+  <b style="font-size: 32px;">Home Network Monitor</b>
 </p>
 
-> Home Net Monitor is maintained at [zhangjf108/Home-Net-Monitor](https://github.com/zhangjf108/Home-Net-Monitor). It is derived from the MIT-licensed [foru17/neko-master](https://github.com/foru17/neko-master), with the upstream copyright and license retained.
+> Home Network Monitor is maintained at [zhangjf108/Home-Network-Monitor](https://github.com/zhangjf108/Home-Network-Monitor). It is derived from the MIT-licensed [foru17/neko-master](https://github.com/foru17/neko-master), with the upstream copyright and license retained.
 
 <p align="center">
   <b>See your network traffic clearly.</b><br>
@@ -16,11 +16,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zhangjf108/Home-Net-Monitor/stargazers"><img src="https://img.shields.io/github/stars/zhangjf108/Home-Net-Monitor?style=flat-square&color=yellow" alt="Stars"></a>
+  <a href="https://github.com/zhangjf108/Home-Network-Monitor/stargazers"><img src="https://img.shields.io/github/stars/zhangjf108/Home-Network-Monitor?style=flat-square&color=yellow" alt="Stars"></a>
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/pulls/foru17/neko-master?style=flat-square&color=blue&logo=docker" alt="Docker Pulls"></a>
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/v/foru17/neko-master?style=flat-square&label=Docker&color=2496ED" alt="Docker Version"></a>
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/image-size/foru17/neko-master/latest?style=flat-square&logo=docker" alt="Image Size"></a>
-  <a href="https://github.com/zhangjf108/Home-Net-Monitor/blob/main/LICENSE"><img src="https://img.shields.io/github/license/zhangjf108/Home-Net-Monitor?style=flat-square&color=green" alt="License"></a>
+  <a href="https://github.com/zhangjf108/Home-Network-Monitor/blob/main/LICENSE"><img src="https://img.shields.io/github/license/zhangjf108/Home-Network-Monitor?style=flat-square&color=green" alt="License"></a>
   <img src="https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=node.js">
   <a href="https://github.com/foru17/neko-master/actions/workflows/docker-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/foru17/neko-master/docker-build.yml?style=flat-square&label=Docker%20CI" alt="Docker CI"></a>
   <a href="./docs/architecture.en.md"><img src="https://img.shields.io/badge/docs-architecture-0ea5e9?style=flat-square" alt="Architecture Docs"></a>
@@ -96,6 +96,30 @@ It is a lightweight analytics dashboard designed for modern gateway environments
 | 🌙 **Dark Mode**            | Light / Dark / System theme support                           |
 | 🌍 **i18n Support**         | English / Chinese seamless switching                          |
 | 🔄 **Multi-Backend**        | Monitor multiple OpenClash backend instances simultaneously   |
+| 🏢 **Vendor Traffic**       | 365-day vendor history, protocol breakdown, and configurable domain/IP ranking |
+| ✅ **Availability**         | ICMP, TCP, HTTP, and DNS probes with uptime, latency, incidents, and webhooks |
+
+### Home network monitoring configuration
+
+- Vendor attribution combines synchronized automatic catalogs with higher-priority manual domain rules and user-defined vendors. Unknown IPs fall back to hostname/PTR and geographic context.
+- Vendor cards can show the top 10, 20, or 50 domains/IPs and preserve protocol-level history. Retention for raw traffic, hourly aggregates, vendor totals, and domain/IP aggregates is configurable independently, including permanent retention.
+- Availability cards display uptime and status history together; hover a status bar to inspect latency. Failure/recovery confirmation and webhook notifications reduce noisy alerts.
+- On an empty database, `HOME_NETWORK_SEED_MONITORS=1` creates 14 starter monitors. Default availability retention is 30 days for minute data and 365 days for hourly data.
+
+```env
+HOME_NETWORK_SEED_MONITORS=1
+SQLITE_RETENTION_MINUTE_DAYS=7
+SQLITE_RETENTION_HOURLY_DAYS=30
+SQLITE_RETENTION_VENDOR_HOURLY_DAYS=365
+SQLITE_RETENTION_VENDOR_ENDPOINT_HOURLY_DAYS=90
+SQLITE_RETENTION_MONITOR_MINUTE_DAYS=30
+SQLITE_RETENTION_MONITOR_HOURLY_DAYS=365
+VENDOR_CATALOG_AUTO_UPDATE=1
+VENDOR_CATALOG_INTERVAL_HOURS=24
+VENDOR_CATALOG_BACKFILL_DAYS=30
+```
+
+The same retention layers can be changed in **Settings → Database** and are persisted in SQLite.
 
 ## 🚀 Quick Start
 

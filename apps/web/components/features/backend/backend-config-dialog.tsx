@@ -1439,15 +1439,26 @@ export function BackendConfigDialog({
     <>
       <div
         className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
-        <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              {isFirstTime ? t("firstTimeTitle") : t("title")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {isFirstTime ? t("firstTimeDescription") : t("description")}
-            </p>
+        <div className="relative w-full max-w-2xl">
+          {!isFirstTime && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-3 top-3 z-10 h-9 w-9 rounded-full bg-card/90"
+              onClick={() => onOpenChange(false)}
+              aria-label={commonT("close")}>
+              <X className="h-5 w-5" />
+            </Button>
+          )}
+          <Card className="w-full max-h-[90vh] overflow-y-auto">
+            <CardHeader className={!isFirstTime ? "pr-14" : undefined}>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                {isFirstTime ? t("firstTimeTitle") : t("title")}
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {isFirstTime ? t("firstTimeDescription") : t("description")}
+              </p>
 
             {/* Tabs */}
             <div className="flex gap-2 mt-4 flex-wrap">
@@ -2480,16 +2491,9 @@ export function BackendConfigDialog({
               </div>
             ) : null}
 
-            {/* Close button for non-first-time */}
-            {!isFirstTime && (
-              <div className="flex justify-end pt-4 border-t">
-                <Button variant="outline" onClick={() => onOpenChange(false)}>
-                  {commonT("close")}
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <Dialog

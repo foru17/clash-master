@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Home Net Monitor",
-    short_name: "Home Net Monitor",
+    name: "Home Network Monitor",
+    short_name: "HNM",
     description: "Home network traffic and availability monitoring",
     start_url: "/",
     scope: "/",

@@ -1,7 +1,7 @@
 {
   "name": "@neko-master/web",
-  "version": "1.0.1",
-  "description": "A modern and elegant dashboard for network traffic visualization and analysis.",
+  "version": "1.0.0",
+  "description": "Home network traffic and availability monitoring dashboard.",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",

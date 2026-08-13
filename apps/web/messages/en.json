@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "title": "Home Net Monitor - Home Network Monitoring",
+    "title": "Home Network Monitor - Home Network Monitoring",
     "description": "Modern traffic analytics for edge gateways"
   },
   "nav": {
@@ -18,7 +18,7 @@
     "showcaseMode": "Showcase Mode"
   },
   "header": {
-    "title": "Home Net Monitor",
+    "title": "HNM",
     "subtitle": "Modern traffic analytics for edge gateways"
   },
   "dashboard": {
@@ -296,10 +296,10 @@
   "about": {
     "title": "About",
     "version": "Version",
-    "projectName": "Home Net Monitor",
+    "projectName": "Home Network Monitor",
     "description": "Home network traffic and availability monitoring",
     "github": "GitHub",
-    "openSource": "Home Net Monitor",
+    "openSource": "Home Network Monitor",
     "basedOn": "Based on",
     "upstreamProject": "Neko Master · foru17/neko-master",
     "license": "MIT License",

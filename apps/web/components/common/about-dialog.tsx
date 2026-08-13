@@ -14,7 +14,7 @@ interface AboutDialogProps {
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
 const GITHUB_REPO =
-  process.env.NEXT_PUBLIC_GITHUB_REPO || "zhangjf108/Home-Net-Monitor";
+  process.env.NEXT_PUBLIC_GITHUB_REPO || "zhangjf108/Home-Network-Monitor";
 const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
 const UPSTREAM_URL = "https://github.com/foru17/neko-master";
 
@@ -28,7 +28,7 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
   return (
     <div
       className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <Card className="w-full max-w-[420px] relative">
+      <Card className="w-full max-w-[560px] relative">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
@@ -50,7 +50,7 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
             <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
               <Image
                 src="/logo.png"
-                alt="Home Net Monitor"
+                alt="Home Network Monitor"
                 width={64}
                 height={64}
                 className="w-full h-full object-cover"

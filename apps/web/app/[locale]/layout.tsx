@@ -24,7 +24,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Home Net Monitor",
+  title: "Home Network Monitor",
   description: "Home network traffic and availability monitoring",
   icons: {
     icon: "/logo.png",
@@ -34,9 +34,9 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Home Net Monitor",
+    title: "Home Network Monitor",
   },
-  applicationName: "Home Net Monitor",
+  applicationName: "Home Network Monitor",
 };
 
 export const viewport: Viewport = {
@@ -76,7 +76,7 @@ export default async function RootLayout({
           name="apple-mobile-web-app-status-bar-style"
           content="black-translucent"
         />
-        <meta name="apple-mobile-web-app-title" content="Home Net Monitor" />
+        <meta name="apple-mobile-web-app-title" content="HNM" />
         {/*
           Load runtime config (real external ports/URLs written by
           docker-start.sh) BEFORE the app bundle, so the WebSocket client reads
