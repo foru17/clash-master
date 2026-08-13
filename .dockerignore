@@ -1,49 +1,92 @@
-# Dependencies
-**/node_modules
-.pnpm-store
-
-# Build outputs & caches
-**/.next
-**/dist
-**/.turbo
-*.tsbuildinfo
-
-# Development
+# Version control and local development metadata
 .git
 .gitignore
-.env.local
-.env.*.local
-*.log
-
-# IDE
+.gitattributes
+.github
+.husky
 .vscode
 .idea
-*.swp
-*.swo
 
-# OS
+# Dependencies and generated build output
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+out
+coverage
+**/coverage
+*.tsbuildinfo
+*.log
+pnpm-debug.log*
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.token
+*secret*
+*password*
+
+# Databases, runtime state, caches, and test artifacts
+data
+**/data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+stats.db
+**/stats.db
+*.dump
+*.bak
+tmp
+temp
+.cache
+**/.cache
+
+# Local GeoIP databases and other large/private data
+geoip
+**/geoip
+*.mmdb
+
+# Reports, screenshots, fixtures, and editor/OS files
+reports
+**/reports
+screenshots
+**/screenshots
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.zip
+*.tar
+*.tar.gz
+!apps/web/public/**/*.png
 .DS_Store
 Thumbs.db
 
-# Testing
-coverage
-.nyc_output
-
-# Docker
-docker-compose.override.yml
-Dockerfile
-.dockerignore
-
-# Documentation (keep minimal)
+# Documentation and research are not required in the runtime image
+docs
+AGENTS.md
+CONTRIBUTING.md
+CONTRIBUTING.zh.md
+CHANGELOG.md
+CHANGELOG.en.md
 README.md
-*.md
+README.en.md
+README.zh.md
 
-# Data (will be mounted as volume)
-data
-*.db
-*.db-journal
-
-# Temporary files
-tmp
-temp
-*.tmp
+# Local scripts and benchmark data not used by the production image
+scripts
+**/scripts
+*.csv
+*.jsonl

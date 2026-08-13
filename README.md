@@ -6,6 +6,8 @@
 
 > Home Network Monitor is maintained at [zhangjf108/Home-Network-Monitor](https://github.com/zhangjf108/Home-Network-Monitor). It is derived from the MIT-licensed [foru17/neko-master](https://github.com/foru17/neko-master), with the upstream copyright and license retained.
 
+> **Current release focus (v1.0.1):** this fork currently focuses on two home-network models: the **Vendor Traffic Model** and the **Availability Monitoring Model**. The first answers “which device accessed which vendor, over which protocol, and with how much traffic”; the second answers “whether a network device or service is reachable, how fast it responds, and when it failed”.
+
 <p align="center">
   <b>See your network traffic clearly.</b><br>
   <span>Real-time monitoring · Traffic auditing · Multi-gateway support</span>
@@ -17,9 +19,9 @@
 
 <p align="center">
   <a href="https://github.com/zhangjf108/Home-Network-Monitor/stargazers"><img src="https://img.shields.io/github/stars/zhangjf108/Home-Network-Monitor?style=flat-square&color=yellow" alt="Stars"></a>
-  <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/pulls/foru17/neko-master?style=flat-square&color=blue&logo=docker" alt="Docker Pulls"></a>
-  <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/v/foru17/neko-master?style=flat-square&label=Docker&color=2496ED" alt="Docker Version"></a>
-  <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/image-size/foru17/neko-master/latest?style=flat-square&logo=docker" alt="Image Size"></a>
+  <a href="https://hub.docker.com/r/zhangjf108/home-network-monitor"><img src="https://img.shields.io/docker/pulls/zhangjf108/home-network-monitor?style=flat-square&color=blue&logo=docker" alt="Docker Pulls"></a>
+  <a href="https://hub.docker.com/r/zhangjf108/home-network-monitor"><img src="https://img.shields.io/docker/v/zhangjf108/home-network-monitor?style=flat-square&label=Docker&color=2496ED" alt="Docker Version"></a>
+  <a href="https://hub.docker.com/r/zhangjf108/home-network-monitor"><img src="https://img.shields.io/docker/image-size/zhangjf108/home-network-monitor/latest?style=flat-square&logo=docker" alt="Image Size"></a>
   <a href="https://github.com/zhangjf108/Home-Network-Monitor/blob/main/LICENSE"><img src="https://img.shields.io/github/license/zhangjf108/Home-Network-Monitor?style=flat-square&color=green" alt="License"></a>
   <img src="https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=node.js">
   <a href="https://github.com/foru17/neko-master/actions/workflows/docker-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/foru17/neko-master/docker-build.yml?style=flat-square&label=Docker%20CI" alt="Docker CI"></a>
@@ -68,6 +70,7 @@ It is a lightweight analytics dashboard designed for modern gateway environments
 ## 📋 Table of Contents
 
 - [✨ Features](#-features)
+- [⭐ Current Release Focus](#-current-release-focus)
 - [🚀 Quick Start](#-quick-start)
 - [🤖 Agent Deployment](#-agent-deployment)
 - [📖 First Use](#-first-use)
@@ -98,6 +101,30 @@ It is a lightweight analytics dashboard designed for modern gateway environments
 | 🔄 **Multi-Backend**        | Monitor multiple OpenClash backend instances simultaneously   |
 | 🏢 **Vendor Traffic**       | 365-day vendor history, protocol breakdown, and configurable domain/IP ranking |
 | ✅ **Availability**         | ICMP, TCP, HTTP, and DNS probes with uptime, latency, incidents, and webhooks |
+
+## ⭐ Current Release Focus
+
+### 1. Vendor Traffic Model
+
+The vendor model uses OpenClash connections as its source and organizes raw traffic into a four-level view: **device → vendor → protocol → domain/IP**.
+
+- Attribution prioritizes manual domain rules, then the synchronized automatic catalog, followed by historical domain evidence, PTR/forward-DNS validation, and GeoIP/ASN context as fallbacks.
+- Explore vendor totals, per-device traffic, TCP/UDP, and HTTP/TLS/QUIC/DNS protocol breakdowns.
+- Vendor detail pages show a configurable domain/IP ranking. Unknown IPs are not force-labeled; operator, region, or country context is retained as evidence.
+- Rule and history data are separated: rule updates can reclassify recent history without inventing attribution for expired raw details.
+- Manage manual rules centrally under **Vendor → Domain Rules** and create custom vendors; manual rules have higher priority than automatic catalog rules.
+
+### 2. Availability Monitoring Model
+
+The availability model turns each probe into a durable **target → probe protocol → state → latency → incident** history:
+
+- Supports ICMP, TCP, HTTP, and DNS probes for routers, OpenClash, NAS devices, service ports, and external DNS.
+- Consecutive failure/recovery confirmation reduces false alerts caused by short network jitter and records failures, recoveries, degradation, and recent incidents.
+- Each monitor Card combines current state, period uptime, and status history; hover a history bar to inspect probe latency and state details.
+- Webhook notifications are supported, and an empty database can seed 14 starter home-network monitors.
+- Availability minute/hour history and vendor traffic history have independent retention controls, including permanent retention in **Settings → Database**.
+
+These two models are the core enhancements over upstream Neko Master in this release, closing the loop between home-network traffic attribution and service health.
 
 ### Home network monitoring configuration
 
