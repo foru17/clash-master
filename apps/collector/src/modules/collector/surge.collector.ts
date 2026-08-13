@@ -167,6 +167,8 @@ interface TrackedRequest {
   totalUpload: number;
   totalDownload: number;
   sourceIP?: string;
+  network?: string;
+  destinationPort?: string | number;
   firstSeen: number;
   lastSeen: number;
   completed: boolean;
@@ -493,6 +495,8 @@ export function createSurgeCollector(
             ? remoteAddress
             : "";
         const sourceIP = req.localAddress || "";
+        const destinationPort = req.remotePort || "";
+        const network = /^https?:\/\//i.test(req.URL || "") ? "tcp" : "";
 
         // For Surge:
         // - policyName = final proxy (e.g., "🇺🇸 US-SJC-IEPL")
@@ -559,6 +563,8 @@ export function createSurgeCollector(
             totalUpload: currentUpload,   // Record initial traffic
             totalDownload: currentDownload,
             sourceIP,
+            network,
+            destinationPort,
             firstSeen: now,
             lastSeen: now,
             completed: isCompleted,
@@ -589,6 +595,8 @@ export function createSurgeCollector(
               connections,
               sourceIP,
               timestampMs: req.time || now,
+              network,
+              destinationPort,
             });
             realtimeStore.recordTraffic(
               id,
@@ -681,6 +689,8 @@ export function createSurgeCollector(
               connections,
               sourceIP: existing.sourceIP,
               timestampMs: req.time || now,
+              network: existing.network,
+              destinationPort: existing.destinationPort,
             });
             realtimeStore.recordTraffic(
               id,

@@ -250,28 +250,47 @@ const configController: FastifyPluginAsync = async (fastify: FastifyInstance): P
     }
 
     const body = request.body as {
-      connectionLogsDays?: number;
-      hourlyStatsDays?: number;
+      connectionLogsDays?: number | 'forever';
+      hourlyStatsDays?: number | 'forever';
+      vendorHourlyDays?: number | 'forever';
+      vendorEndpointHourlyDays?: number | 'forever';
+      monitorMinuteDays?: number | 'forever';
+      monitorHourlyDays?: number | 'forever';
       autoCleanup?: boolean;
     };
 
     if (
-      body.connectionLogsDays !== undefined &&
+      body.connectionLogsDays !== undefined && body.connectionLogsDays !== 'forever' &&
       (body.connectionLogsDays < 1 || body.connectionLogsDays > 90)
     ) {
       return reply.status(400).send({ error: "connectionLogsDays must be between 1 and 90" });
     }
 
     if (
-      body.hourlyStatsDays !== undefined &&
+      body.hourlyStatsDays !== undefined && body.hourlyStatsDays !== 'forever' &&
       (body.hourlyStatsDays < 7 || body.hourlyStatsDays > 365)
     ) {
       return reply.status(400).send({ error: "hourlyStatsDays must be between 7 and 365" });
     }
 
+    for (const [key, value, min, max] of [
+      ['vendorHourlyDays', body.vendorHourlyDays, 30, 730],
+      ['vendorEndpointHourlyDays', body.vendorEndpointHourlyDays, 7, 730],
+      ['monitorMinuteDays', body.monitorMinuteDays, 7, 90],
+      ['monitorHourlyDays', body.monitorHourlyDays, 30, 730],
+    ] as const) {
+      if (value !== undefined && value !== 'forever' && (value < min || value > max)) {
+        return reply.status(400).send({ error: `${key} must be between ${min} and ${max}` });
+      }
+    }
+
     const config = fastify.db.updateRetentionConfig({
       connectionLogsDays: body.connectionLogsDays,
       hourlyStatsDays: body.hourlyStatsDays,
+      vendorHourlyDays: body.vendorHourlyDays,
+      vendorEndpointHourlyDays: body.vendorEndpointHourlyDays,
+      monitorMinuteDays: body.monitorMinuteDays,
+      monitorHourlyDays: body.monitorHourlyDays,
       autoCleanup: body.autoCleanup,
     });
 

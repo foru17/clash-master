@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 const GITHUB_REPO =
-  process.env.NEXT_PUBLIC_GITHUB_REPO || "foru17/neko-master";
+  process.env.NEXT_PUBLIC_GITHUB_REPO || "zhangjf108/Home-Net-Monitor";
 const GITHUB_PACKAGE_URL =
   `https://raw.githubusercontent.com/${GITHUB_REPO}/refs/heads/main/package.json`;
 const GITHUB_API_URL =

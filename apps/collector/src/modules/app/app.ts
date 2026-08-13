@@ -23,6 +23,8 @@ import { BackendService, backendController } from '../backend/index.js';
 import { StatsService, statsController } from '../stats/index.js';
 import { AuthService, authController } from '../auth/index.js';
 import { configController } from '../config/index.js';
+import { VendorCatalogService, VendorIPEnrichmentService, vendorController } from '../vendor/index.js';
+import { MonitorService, monitorController } from '../monitor/index.js';
 
 // Extend Fastify instance to include services
 declare module 'fastify' {
@@ -31,6 +33,9 @@ declare module 'fastify' {
     realtimeStore: RealtimeStore;
     backendService: BackendService;
     statsService: StatsService;
+    monitorService: MonitorService;
+    vendorCatalogService: VendorCatalogService;
+    vendorIPEnrichmentService: VendorIPEnrichmentService;
     clearAgentRuntimeState?: (backendId?: number) => void;
     notifyBackendDataCleared?: (backendId: number) => void;
   }
@@ -43,6 +48,8 @@ export interface AppOptions {
   logger?: boolean;
   policySyncService?: SurgePolicySyncService;
   geoService?: GeoIPService;
+  vendorCatalogService?: VendorCatalogService;
+  vendorIPEnrichmentService?: VendorIPEnrichmentService;
   autoListen?: boolean;
   onTrafficIngested?: (backendId: number) => void;
   onBackendDataCleared?: (backendId: number) => void;
@@ -60,6 +67,8 @@ type AgentTrafficUpdatePayload = {
   connections?: number;
   sourceIP?: string;
   timestampMs?: number;
+  network?: string;
+  destinationPort?: string | number;
 };
 
 type AgentConfigPayload = {
@@ -104,6 +113,8 @@ export async function createApp(options: AppOptions) {
     logger = false,
     policySyncService,
     geoService,
+    vendorCatalogService: providedVendorCatalogService,
+    vendorIPEnrichmentService: providedVendorIPEnrichmentService,
     autoListen = true,
     onTrafficIngested,
     onBackendDataCleared,
@@ -342,10 +353,17 @@ export async function createApp(options: AppOptions) {
     onBackendDataCleared,
   );
   const statsService = new StatsService(db, realtimeStore);
+  const monitorService = new MonitorService(db);
+  const vendorCatalogService = providedVendorCatalogService ?? new VendorCatalogService(db);
+  const vendorIPEnrichmentService =
+    providedVendorIPEnrichmentService ?? new VendorIPEnrichmentService(db, geoService);
 
   // Decorate Fastify instance with services
   app.decorate('backendService', backendService);
   app.decorate('statsService', statsService);
+  app.decorate('monitorService', monitorService);
+  app.decorate('vendorCatalogService', vendorCatalogService);
+  app.decorate('vendorIPEnrichmentService', vendorIPEnrichmentService);
   app.decorate('authService', authService);
   app.decorate('db', db);
   app.decorate('realtimeStore', realtimeStore);
@@ -764,7 +782,7 @@ export async function createApp(options: AppOptions) {
       if (connections === undefined) {
         // Connection key matches BatchBuffer's deduplication dimensions (minus minuteKey):
         // domain, ip, full chain, rule, rulePayload, sourceIP.
-        const connectionKey = `${update.domain}:${update.ip}:${update.chains.join(' > ')}:${update.rule}:${update.rulePayload}:${update.sourceIP || ''}`;
+        const connectionKey = `${update.domain}:${update.ip}:${update.chains.join(' > ')}:${update.rule}:${update.rulePayload}:${update.sourceIP || ''}:${update.network || ''}:${update.destinationPort || ''}`;
         connections = agentCounted.has(connectionKey) ? 0 : 1;
         agentCounted.add(connectionKey);
       }
@@ -799,6 +817,8 @@ export async function createApp(options: AppOptions) {
         connections,
         sourceIP: update.sourceIP,
         timestampMs: update.timestampMs,
+        network: update.network,
+        destinationPort: update.destinationPort,
       });
 
       realtimeStore.recordTraffic(
@@ -1362,6 +1382,7 @@ export async function createApp(options: AppOptions) {
 
   // On server close: stop health checks, flush all pending agent buffers.
   app.addHook('onClose', async () => {
+    monitorService.stop();
     backendService.stopHealthChecks();
     clearInterval(agentFlushIntervalId);
     for (const [backendId, buffer] of agentBatchBuffers) {
@@ -1378,6 +1399,8 @@ export async function createApp(options: AppOptions) {
   await app.register(statsController, { prefix: '/api/stats' });
   await app.register(authController, { prefix: '/api/auth' });
   await app.register(configController, { prefix: '/api/db' });
+  await app.register(vendorController, { prefix: '/api/vendors' });
+  await app.register(monitorController, { prefix: '/api/monitors' });
 
   if (autoListen) {
     // Start server
@@ -1386,6 +1409,7 @@ export async function createApp(options: AppOptions) {
 
     // Start automatic health checks for upstream gateways
     backendService.startHealthChecks();
+    monitorService.start();
   }
 
   return app;
@@ -1398,6 +1422,8 @@ export class APIServer {
   private port: number;
   private policySyncService?: SurgePolicySyncService;
   private geoService?: GeoIPService;
+  private vendorCatalogService?: VendorCatalogService;
+  private vendorIPEnrichmentService?: VendorIPEnrichmentService;
   private onTrafficIngested?: (backendId: number) => void;
   private onBackendDataCleared?: (backendId: number) => void;
 
@@ -1407,6 +1433,8 @@ export class APIServer {
     realtimeStore: RealtimeStore,
     policySyncService?: SurgePolicySyncService,
     geoService?: GeoIPService,
+    vendorCatalogService?: VendorCatalogService,
+    vendorIPEnrichmentService?: VendorIPEnrichmentService,
     onTrafficIngested?: (backendId: number) => void,
     onBackendDataCleared?: (backendId: number) => void,
   ) {
@@ -1415,6 +1443,8 @@ export class APIServer {
     this.realtimeStore = realtimeStore;
     this.policySyncService = policySyncService;
     this.geoService = geoService;
+    this.vendorCatalogService = vendorCatalogService;
+    this.vendorIPEnrichmentService = vendorIPEnrichmentService;
     this.onTrafficIngested = onTrafficIngested;
     this.onBackendDataCleared = onBackendDataCleared;
   }
@@ -1426,6 +1456,8 @@ export class APIServer {
       realtimeStore: this.realtimeStore,
       policySyncService: this.policySyncService,
       geoService: this.geoService,
+      vendorCatalogService: this.vendorCatalogService,
+      vendorIPEnrichmentService: this.vendorIPEnrichmentService,
       onTrafficIngested: this.onTrafficIngested,
       onBackendDataCleared: this.onBackendDataCleared,
       logger: false,

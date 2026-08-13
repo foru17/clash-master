@@ -32,6 +32,7 @@ import {
 } from './modules/clickhouse/clickhouse.config.js';
 import { ClickHouseCompareService } from './modules/clickhouse/clickhouse.compare.js';
 import { CleanupService, type CleanupOverrides } from './modules/cleanup/index.js';
+import { VendorCatalogService, VendorIPEnrichmentService } from './modules/vendor/index.js';
 
 const COLLECTOR_WS_PORT = parseInt(process.env.COLLECTOR_WS_PORT || '3002');
 const API_PORT = parseInt(process.env.API_PORT || '3001');
@@ -41,9 +42,10 @@ const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'stats.db');
  * Parse an integer retention env var. Returns undefined for unset/invalid values
  * so the service falls back to the DB-stored config or built-in defaults.
  */
-function parseRetentionEnvDays(name: string): number | undefined {
+function parseRetentionEnvDays(name: string): number | 'forever' | undefined {
   const raw = process.env[name];
   if (raw === undefined || raw === '') return undefined;
+  if (raw.trim().toLowerCase() === 'forever') return 'forever';
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed < 1) {
     console.warn(`[Cleanup] Ignoring invalid ${name}=${raw} (expected positive integer)`);
@@ -57,6 +59,10 @@ function loadCleanupOverridesFromEnv(): CleanupOverrides {
     connectionLogsDays: parseRetentionEnvDays('SQLITE_RETENTION_MINUTE_DAYS'),
     hourlyStatsDays: parseRetentionEnvDays('SQLITE_RETENTION_HOURLY_DAYS'),
     healthLogDays: parseRetentionEnvDays('SQLITE_RETENTION_HEALTH_LOG_DAYS'),
+    vendorHourlyDays: parseRetentionEnvDays('SQLITE_RETENTION_VENDOR_HOURLY_DAYS'),
+    vendorEndpointHourlyDays: parseRetentionEnvDays('SQLITE_RETENTION_VENDOR_ENDPOINT_HOURLY_DAYS'),
+    monitorMinuteDays: parseRetentionEnvDays('SQLITE_RETENTION_MONITOR_MINUTE_DAYS'),
+    monitorHourlyDays: parseRetentionEnvDays('SQLITE_RETENTION_MONITOR_HOURLY_DAYS'),
   };
 }
 
@@ -69,6 +75,8 @@ let geoService: GeoIPService;
 let policySyncService: SurgePolicySyncService;
 let clickHouseCompareService: ClickHouseCompareService;
 let cleanupService: CleanupService | undefined;
+let vendorCatalogService: VendorCatalogService | undefined;
+let vendorIPEnrichmentService: VendorIPEnrichmentService | undefined;
 
 // Track last known backend configs to detect changes
 let lastBackendConfigs: Map<number, BackendConfig> = new Map();
@@ -102,6 +110,8 @@ async function main() {
 
   // Initialize policy sync service
   policySyncService = new SurgePolicySyncService(db);
+  vendorCatalogService = new VendorCatalogService(db);
+  vendorIPEnrichmentService = new VendorIPEnrichmentService(db, geoService);
 
   // Initialize API server
   console.log('[Main] Starting API server on port', API_PORT);
@@ -111,6 +121,8 @@ async function main() {
     realtimeStore,
     policySyncService,
     geoService,
+    vendorCatalogService,
+    vendorIPEnrichmentService,
     (backendId: number) => {
       wsServer.broadcastStats(backendId);
     },
@@ -125,6 +137,7 @@ async function main() {
     },
   );
   apiServer.start();
+  vendorCatalogService.start();
 
   // Start backend management loop
   console.log('[Main] Starting backend management loop...');
@@ -307,6 +320,7 @@ async function shutdown() {
 
   // Stop retention cleanup
   cleanupService?.stop();
+  vendorCatalogService?.stop();
 
   // Close database
   db?.close();

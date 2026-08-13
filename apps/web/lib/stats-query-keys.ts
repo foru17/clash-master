@@ -50,6 +50,47 @@ export function getDevicesQueryKey(backendId?: number, limit = 50, range?: TimeR
   ] as const;
 }
 
+export function getVendorStatsQueryKey(backendId?: number, range?: TimeRange, sourceIP?: string) {
+  return [
+    "stats",
+    "vendors",
+    {
+      backendId: backendId ?? null,
+      sourceIP: sourceIP ?? "",
+      ...normalizeRange(range),
+    },
+  ] as const;
+}
+
+export function getVendorEndpointsQueryKey(
+  backendId?: number,
+  vendorId?: number,
+  range?: TimeRange,
+  sourceIP?: string,
+  limit = 10,
+) {
+  return ["stats", "vendors", "endpoints", {
+    backendId: backendId ?? null, vendorId: vendorId ?? null,
+    sourceIP: sourceIP ?? "", limit, ...normalizeRange(range),
+  }] as const;
+}
+
+export function getMonitorsQueryKey() {
+  return ["availability", "monitors"] as const;
+}
+
+export function getMonitorHistoryQueryKey(id?: number, range?: TimeRange) {
+  return [
+    "availability",
+    "history",
+    { id: id ?? null, ...normalizeRange(range) },
+  ] as const;
+}
+
+export function getMonitorOverviewQueryKey(range?: TimeRange) {
+  return ["availability", "overview", normalizeRange(range)] as const;
+}
+
 export function getProxiesQueryKey(backendId?: number, limit = 50, range?: TimeRange) {
   return [
     "stats",

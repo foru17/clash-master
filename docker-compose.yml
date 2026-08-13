@@ -1,8 +1,12 @@
 services:
   neko-master:
-    image: foru17/neko-master:latest
-    container_name: neko-master
+    build: .
+    image: neko-master-home:1.0.0
+    container_name: neko-master-home
     restart: unless-stopped
+    stop_grace_period: 30s
+    cap_add:
+      - NET_RAW
     ports:
       # 外部端口 : 内部端口
       # 如果端口被占用，修改 .env 文件或环境变量即可
@@ -22,6 +26,15 @@ services:
       - API_EXTERNAL_PORT=${API_EXTERNAL_PORT:-3001}
       - WS_EXTERNAL_PORT=${WS_EXTERNAL_PORT:-3002}
       - DB_PATH=/app/data/stats.db
+      - HOME_NETWORK_SEED_MONITORS=${HOME_NETWORK_SEED_MONITORS:-1}
+      - SQLITE_RETENTION_MINUTE_DAYS=${SQLITE_RETENTION_MINUTE_DAYS:-7}
+      - SQLITE_RETENTION_HOURLY_DAYS=${SQLITE_RETENTION_HOURLY_DAYS:-30}
+      - SQLITE_RETENTION_VENDOR_HOURLY_DAYS=${SQLITE_RETENTION_VENDOR_HOURLY_DAYS:-365}
+      - VENDOR_CATALOG_AUTO_UPDATE=${VENDOR_CATALOG_AUTO_UPDATE:-1}
+      - VENDOR_CATALOG_INTERVAL_HOURS=${VENDOR_CATALOG_INTERVAL_HOURS:-24}
+      - VENDOR_CATALOG_BACKFILL_DAYS=${VENDOR_CATALOG_BACKFILL_DAYS:-30}
+      - SQLITE_RETENTION_MONITOR_MINUTE_DAYS=${SQLITE_RETENTION_MONITOR_MINUTE_DAYS:-30}
+      - SQLITE_RETENTION_MONITOR_HOURLY_DAYS=${SQLITE_RETENTION_MONITOR_HOURLY_DAYS:-365}
       - COOKIE_SECRET=${COOKIE_SECRET:-}
       - GEOIP_LOOKUP_PROVIDER=${GEOIP_LOOKUP_PROVIDER:-}
       - GEOIP_ONLINE_API_URL=${GEOIP_ONLINE_API_URL:-}

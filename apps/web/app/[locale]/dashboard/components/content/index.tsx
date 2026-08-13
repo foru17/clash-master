@@ -13,6 +13,8 @@ import { InteractiveProxyStats } from "@/components/features/proxies";
 import { InteractiveDeviceStats } from "@/components/features/devices";
 import { InteractiveRuleStats } from "@/components/features/rules";
 import { HealthContent } from "@/components/features/health";
+import { VendorContent } from "@/components/features/vendors";
+import { AvailabilityContent } from "@/components/features/availability";
 import { WorldTrafficMap, CountryTrafficList } from "@/components/features/countries";
 import { DomainsTable, IPsTable } from "@/components/features/stats/table";
 import { Button } from "@/components/ui/button";
@@ -43,6 +45,7 @@ interface ContentProps {
   activeBackendId?: number;
   backendStatus: BackendStatus;
   onNavigate?: (tab: string) => void;
+  onRefresh?: () => Promise<void> | void;
   isLoading?: boolean;
   isTransitioning?: boolean;
 }
@@ -327,6 +330,7 @@ export function Content({
   activeBackendId,
   backendStatus,
   onNavigate,
+  onRefresh,
   isTransitioning,
 }: ContentProps) {
   const renderContent = () => {
@@ -388,6 +392,10 @@ export function Content({
         return <NetworkContent />;
       case "health":
         return <HealthContent timeRange={timeRange} />;
+      case "vendors":
+        return <VendorContent activeBackendId={activeBackendId} timeRange={timeRange} onRefresh={onRefresh} />;
+      case "availability":
+        return <AvailabilityContent timeRange={timeRange} />;
       default:
         return (
           <OverviewContent

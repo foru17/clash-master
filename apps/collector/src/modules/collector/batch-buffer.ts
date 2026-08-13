@@ -25,6 +25,8 @@ export interface TrafficUpdate {
   connections?: number;
   sourceIP?: string;
   timestampMs?: number;
+  network?: string;
+  destinationPort?: string | number;
 }
 
 export interface GeoIPResult {
@@ -105,6 +107,8 @@ export class BatchBuffer {
       update.rule,
       update.rulePayload,
       update.sourceIP || "",
+      update.network || "",
+      String(update.destinationPort || ""),
     ].join(":");
     const existing = this.buffer.get(key);
     const connections = normalizeConnections(update.connections);

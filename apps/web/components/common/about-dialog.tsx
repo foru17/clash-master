@@ -14,8 +14,9 @@ interface AboutDialogProps {
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
 const GITHUB_REPO =
-  process.env.NEXT_PUBLIC_GITHUB_REPO || "foru17/neko-master";
+  process.env.NEXT_PUBLIC_GITHUB_REPO || "zhangjf108/Home-Net-Monitor";
 const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
+const UPSTREAM_URL = "https://github.com/foru17/neko-master";
 
 export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
   const aboutT = useTranslations("about");
@@ -49,14 +50,14 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
             <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
               <Image
                 src="/logo.png"
-                alt="Neko Master"
+                alt="Home Net Monitor"
                 width={64}
                 height={64}
                 className="w-full h-full object-cover"
               />
             </div>
             <div>
-              <h3 className="text-xl font-bold">Neko Master</h3>
+              <h3 className="text-xl font-bold">{aboutT("projectName")}</h3>
               <p className="text-sm text-muted-foreground mt-1">
                 {aboutT("description")}
               </p>
@@ -132,6 +133,18 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
               <span className="text-sm font-medium">{aboutT("license")}</span>
               <span className="text-sm text-muted-foreground">MIT</span>
             </div>
+
+            <a
+              href={UPSTREAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between p-3 rounded-xl bg-secondary/50 border border-border/50 hover:bg-secondary/80 hover:border-primary/30 transition-all group gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{aboutT("basedOn")}</p>
+                <p className="text-xs text-muted-foreground truncate">{aboutT("upstreamProject")}</p>
+              </div>
+              <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-primary shrink-0" />
+            </a>
 
             {/* GitHub Link */}
             <a

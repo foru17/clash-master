@@ -1,7 +1,7 @@
 <p align="center">
-  <img src="./assets/icon-neko-master.png" width="200" alt="Neko Master Logo" style="margin-bottom: 16px;">
+  <img src="./assets/icon-neko-master.png" width="200" alt="Home Net Monitor Logo" style="margin-bottom: 16px;">
   <br>
-  <b style="font-size: 32px;">Neko Master</b>
+  <b style="font-size: 32px;">Home Net Monitor</b>
 </p>
 
 <p align="center">
@@ -13,12 +13,16 @@
   <b>中文</b> | <a href="./README.md">English</a>
 </p>
 
+> 家庭网络版已实现厂商级 365 天历史与轻量可用性监控。部署说明见 [家庭网络版部署指南](docs/home-network-deployment.zh.md)，容量基准见 [SQLite 容量与性能](docs/sqlite-capacity.zh.md)。
+
+> 本项目由 [zhangjf108/Home-Net-Monitor](https://github.com/zhangjf108/Home-Net-Monitor) 维护，基于 MIT 许可的 [foru17/neko-master](https://github.com/foru17/neko-master) 二次开发，并保留上游版权与许可声明。
+
 <p align="center">
-  <a href="https://github.com/foru17/neko-master/stargazers"><img src="https://img.shields.io/github/stars/foru17/neko-master?style=flat-square&color=yellow" alt="Stars"></a>
+  <a href="https://github.com/zhangjf108/Home-Net-Monitor/stargazers"><img src="https://img.shields.io/github/stars/zhangjf108/Home-Net-Monitor?style=flat-square&color=yellow" alt="Stars"></a>
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/pulls/foru17/neko-master?style=flat-square&color=blue&logo=docker" alt="Docker Pulls"></a>
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/v/foru17/neko-master?style=flat-square&label=Docker&color=2496ED" alt="Docker Version"></a>
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/image-size/foru17/neko-master/latest?style=flat-square&logo=docker" alt="Image Size"></a>
-  <a href="https://github.com/foru17/neko-master/blob/main/LICENSE"><img src="https://img.shields.io/github/license/foru17/neko-master?style=flat-square&color=green" alt="License"></a>
+  <a href="https://github.com/zhangjf108/Home-Net-Monitor/blob/main/LICENSE"><img src="https://img.shields.io/github/license/zhangjf108/Home-Net-Monitor?style=flat-square&color=green" alt="License"></a>
   <img src="https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=node.js">
   <a href="https://github.com/foru17/neko-master/actions/workflows/docker-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/foru17/neko-master/docker-build.yml?style=flat-square&label=Docker%20CI" alt="Docker CI"></a>
   <a href="./docs/architecture.md"><img src="https://img.shields.io/badge/docs-architecture-0ea5e9?style=flat-square" alt="Architecture Docs"></a>

@@ -41,8 +41,8 @@ RUN pnpm --filter @neko-master/collector deploy --prod /app/apps/collector-deplo
 # Production stage
 FROM node:22-alpine AS production
 
-# Install wget for health checks
-RUN apk add --no-cache wget
+# wget powers the container health check; iputils provides ICMP probes.
+RUN apk add --no-cache wget iputils
 
 WORKDIR /app
 

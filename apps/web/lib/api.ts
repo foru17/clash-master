@@ -8,6 +8,15 @@ import type {
   TrafficTrendPoint,
   ProxyTrafficStats,
   DeviceStats,
+  TrafficVendor,
+  VendorStatsResponse,
+  VendorEndpointStatsResponse,
+  VendorAutomationResponse,
+  AvailabilityMonitor,
+  MonitorHistoryPoint,
+  MonitorIncident,
+  MonitorOverviewItem,
+  MonitorType,
 } from "@neko-master/shared";
 import { getAuthHeaders } from "./auth-queries";
 
@@ -208,6 +217,10 @@ const DEFAULT_DB_STATS = {
 const DEFAULT_RETENTION_CONFIG = {
   connectionLogsDays: 7,
   hourlyStatsDays: 30,
+  vendorHourlyDays: 365,
+  vendorEndpointHourlyDays: 90,
+  monitorMinuteDays: 30,
+  monitorHourlyDays: 365,
   autoCleanup: true,
 } as const;
 
@@ -596,7 +609,15 @@ export const api = {
 
   getRetentionConfig: async () => {
     try {
-      return await fetchJson<{ connectionLogsDays: number; hourlyStatsDays: number; autoCleanup: boolean }>(
+      return await fetchJson<{
+        connectionLogsDays: number | "forever";
+        hourlyStatsDays: number | "forever";
+        vendorHourlyDays: number | "forever";
+        vendorEndpointHourlyDays: number | "forever";
+        monitorMinuteDays: number | "forever";
+        monitorHourlyDays: number | "forever";
+        autoCleanup: boolean;
+      }>(
         `${API_BASE}/db/retention`
       );
     } catch (error) {
@@ -607,7 +628,15 @@ export const api = {
     }
   },
 
-  updateRetentionConfig: (config: { connectionLogsDays: number; hourlyStatsDays: number; autoCleanup?: boolean }) =>
+  updateRetentionConfig: (config: {
+    connectionLogsDays: number | "forever";
+    hourlyStatsDays: number | "forever";
+    vendorHourlyDays?: number | "forever";
+    vendorEndpointHourlyDays?: number | "forever";
+    monitorMinuteDays?: number | "forever";
+    monitorHourlyDays?: number | "forever";
+    autoCleanup?: boolean;
+  }) =>
     fetchJson<{ message: string }>(`${API_BASE}/db/retention`, 'PUT', config),
 
   getGeoLookupConfig: async () => {
@@ -625,6 +654,106 @@ export const api = {
     config: { provider?: GeoLookupProvider; onlineApiUrl?: string },
   ) =>
     fetchJson<{ message: string; config: GeoLookupConfig }>(`${API_BASE}/db/geoip`, 'PUT', config),
+
+  // Vendor analytics
+  getVendors: () => fetchJson<TrafficVendor[]>(`${API_BASE}/vendors`),
+
+  createVendor: (vendor: {
+    slug: string; name: string; color?: string; priority?: number; enabled?: boolean;
+    rules?: Array<{ pattern: string; matchType: "exact" | "suffix"; priority?: number }>;
+  }) => fetchJson<TrafficVendor>(`${API_BASE}/vendors`, 'POST', vendor),
+
+  updateVendor: (id: number, vendor: {
+    name?: string; color?: string; priority?: number; enabled?: boolean;
+    rules?: Array<{ pattern: string; matchType: "exact" | "suffix"; priority?: number }>;
+  }) =>
+    fetchJson<TrafficVendor>(`${API_BASE}/vendors/${id}`, 'PUT', vendor),
+
+  getVendorStats: (backendId: number, range: TimeRange, sourceIP?: string) =>
+    fetchJson<VendorStatsResponse>(buildUrl(`${API_BASE}/vendors/stats`, {
+      backendId,
+      start: range.start,
+      end: range.end,
+      sourceIP,
+    })),
+
+  getVendorEndpoints: (
+    backendId: number,
+    vendorId: number,
+    range: TimeRange,
+    sourceIP?: string,
+    limit = 10,
+  ) =>
+    fetchJson<VendorEndpointStatsResponse>(buildUrl(`${API_BASE}/vendors/${vendorId}/endpoints`, {
+      backendId, start: range.start, end: range.end, sourceIP, limit,
+    })),
+
+  getVendorAutomation: (backendId: number) =>
+    fetchJson<VendorAutomationResponse>(buildUrl(`${API_BASE}/vendors/automation`, { backendId })),
+
+  syncVendorCatalog: () =>
+    fetchJson<{
+      changed: boolean;
+      revision: string;
+      rulesCount: number;
+      conflictCount: number;
+      excludedCount: number;
+    }>(`${API_BASE}/vendors/catalog/sync`, 'POST'),
+
+  reclassifyVendorHistory: (days = 30) =>
+    fetchJson<{ scannedRows: number; durationMs: number }>(
+      `${API_BASE}/vendors/reclassify`,
+      'POST',
+      { days },
+    ),
+
+  // Availability monitoring
+  getMonitors: () => fetchJson<AvailabilityMonitor[]>(`${API_BASE}/monitors`),
+
+  createMonitor: (monitor: {
+    name: string;
+    type: MonitorType;
+    target: string;
+    port?: number | null;
+    dnsServer?: string | null;
+    dnsRecordType?: string;
+    intervalSeconds?: number;
+    timeoutMs?: number;
+    failureThreshold?: number;
+    enabled?: boolean;
+  }) => fetchJson<AvailabilityMonitor>(`${API_BASE}/monitors`, "POST", monitor),
+
+  updateMonitor: (id: number, monitor: Partial<AvailabilityMonitor>) =>
+    fetchJson<AvailabilityMonitor>(`${API_BASE}/monitors/${id}`, "PUT", monitor),
+
+  deleteMonitor: (id: number) =>
+    fetchJson<{ ok: boolean }>(`${API_BASE}/monitors/${id}`, "DELETE"),
+
+  testMonitor: (id: number) =>
+    fetchJson<{ status: "up" | "down" | "degraded"; latencyMs: number | null; message: string }>(
+      `${API_BASE}/monitors/${id}/test`,
+      "POST",
+    ),
+
+  getMonitorHistory: (id: number, range: TimeRange) =>
+    fetchJson<MonitorHistoryPoint[]>(buildUrl(`${API_BASE}/monitors/${id}/history`, {
+      start: range.start,
+      end: range.end,
+    })),
+
+  getMonitorOverview: (range: TimeRange, points = 96) =>
+    fetchJson<MonitorOverviewItem[]>(buildUrl(`${API_BASE}/monitors/overview`, {
+      start: range.start, end: range.end, points,
+    })),
+
+  getMonitorIncidents: (limit = 100) =>
+    fetchJson<MonitorIncident[]>(buildUrl(`${API_BASE}/monitors/incidents`, { limit })),
+
+  getMonitorWebhook: () =>
+    fetchJson<{ enabled: boolean; url: string }>(`${API_BASE}/monitors/webhook`),
+
+  updateMonitorWebhook: (config: { enabled: boolean; url: string }) =>
+    fetchJson<{ enabled: boolean; url: string }>(`${API_BASE}/monitors/webhook`, "PUT", config),
 
   // Auth management
   getAuthState: () =>
