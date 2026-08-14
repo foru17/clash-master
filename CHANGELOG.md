@@ -5,6 +5,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.0.5] - 2026-08-14
+
+### 修复
+
+- 修复可用性历史和最近事件的时间显示：后端 UTC 时间桶无 `Z` 后缀时，前端现在先按 UTC 解析，再按 Asia/Shanghai 展示，避免比健康图少 8 小时。
+- 统一可用性时间解析逻辑，兼容 ISO 时间戳、SQLite UTC 时间和带时区偏移的时间值。
+- 修正 Docker 发布工作流的镜像目标，统一推送到 `uggugg/home-network-monitor`。
+
 ## [1.0.4] - 2026-08-14
 
 ### 修复

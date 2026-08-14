@@ -9,8 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKERHUB_IMAGE_OLD: foru17/clash-master
-  DOCKERHUB_IMAGE_NEW: foru17/neko-master
+  DOCKERHUB_IMAGE: uggugg/home-network-monitor
   GHCR_IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
@@ -68,8 +67,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.DOCKERHUB_IMAGE_OLD }}
-            ${{ env.DOCKERHUB_IMAGE_NEW }}
+            ${{ env.DOCKERHUB_IMAGE }}
             ${{ env.GHCR_IMAGE }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
@@ -100,6 +98,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: foru17/neko-master
+          repository: uggugg/home-network-monitor
           readme-filepath: ./README.md
           short-description: "Modern traffic analytics for edge gateways"

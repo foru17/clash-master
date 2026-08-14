@@ -30,7 +30,7 @@ export function formatNumber(num: number): string {
   return num.toString();
 }
 
-function parseApiTimestamp(dateString: string): Date {
+export function parseApiTimestamp(dateString: string): Date {
   const raw = (dateString || "").trim();
   if (!raw) return new Date(Number.NaN);
 
@@ -53,6 +53,21 @@ function parseApiTimestamp(dateString: string): Date {
   }
 
   return new Date(raw);
+}
+
+export function formatAppDateTime(dateString: string, locale: string): string {
+  const date = parseApiTimestamp(dateString);
+  const displayLocale = locale === "zh" ? "zh-CN" : "en-US";
+
+  return date.toLocaleString(displayLocale, {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 export function formatDuration(dateString: string): string {

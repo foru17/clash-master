@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, CircleAlert, Clock3, Plus, RefreshCw, Trash2, Wifi } from "lucide-react";
 import type { AvailabilityMonitor, MonitorType } from "@neko-master/shared";
@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { api, type TimeRange } from "@/lib/api";
 import { getMonitorOverviewQueryKey, getMonitorsQueryKey } from "@/lib/stats-query-keys";
 import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
-import { cn } from "@/lib/utils";
+import { cn, formatAppDateTime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -46,6 +46,7 @@ const EMPTY_FORM: MonitorForm = {
 
 export function AvailabilityContent({ timeRange }: AvailabilityContentProps) {
   const t = useTranslations("availability");
+  const locale = useLocale();
   const queryClient = useQueryClient();
   const stableRange = useStableTimeRange(timeRange, { roundToMinute: true });
   const queryRange = stableRange ?? timeRange;
@@ -206,7 +207,7 @@ export function AvailabilityContent({ timeRange }: AvailabilityContentProps) {
                                 />
                               </TooltipTrigger>
                               <TooltipContent className="space-y-1 text-xs">
-                                <p>{new Date(point.time).toLocaleString()} · {t(`status.${point.status}`)}</p>
+                                <p>{formatAppDateTime(point.time, locale)} · {t(`status.${point.status}`)}</p>
                                 <p>{t("latencyDetails", { average: point.averageLatencyMs ?? "—", min: point.minLatencyMs ?? "—", max: point.maxLatencyMs ?? "—" })}</p>
                                 <p>{t("checkDetails", { checks: point.checks, down: point.downChecks, degraded: point.degradedChecks })}</p>
                               </TooltipContent>
@@ -229,7 +230,7 @@ export function AvailabilityContent({ timeRange }: AvailabilityContentProps) {
           {incidentsQuery.isError ? <p className="text-sm text-destructive">{t("loadError")}</p> : !incidentsQuery.data?.length ? <p className="text-sm text-muted-foreground">{t("noIncidents")}</p> : incidentsQuery.data.slice(0, 8).map((incident) => (
             <div key={incident.id} className="border-b last:border-0 pb-2 last:pb-0">
               <div className="flex justify-between gap-2 text-sm"><span className="font-medium truncate">{incident.monitorName}</span><span className={incident.status === "open" ? "text-rose-500" : "text-emerald-500"}>{t(`incident.${incident.status}`)}</span></div>
-              <p className="text-xs text-muted-foreground mt-1">{new Date(incident.startedAt).toLocaleString()} · {incident.message}</p>
+              <p className="text-xs text-muted-foreground mt-1">{formatAppDateTime(incident.startedAt, locale)} · {incident.message}</p>
             </div>
           ))}
         </CardContent>
