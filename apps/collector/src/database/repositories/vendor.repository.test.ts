@@ -97,6 +97,49 @@ describe('VendorRepository', () => {
     });
   });
 
+  it('reclassifies high-confidence enriched IP endpoints in vendor views without rewriting raw rollups', () => {
+    const timestampMs = Date.now();
+    const bytedance = db.getVendors().find((vendor) => vendor.slug === 'bytedance')!;
+    const unknown = db.getVendors().find((vendor) => vendor.slug === 'unknown')!;
+    db.updateTrafficStats(backendId, {
+      domain: '', ip: '49.7.200.54', chain: 'DIRECT', chains: ['DIRECT'],
+      rule: 'Match', rulePayload: '', upload: 100, download: 900,
+      connections: 2, sourceIP: '10.0.1.50', timestampMs,
+      network: 'udp', destinationPort: 9681,
+    });
+    db.repos.vendor.saveIPDomainEnrichment({
+      ip: '49.7.200.54', status: 'resolved', domain: 'signal-t1-v4-az1.rtcxyz.com',
+      vendorId: bytedance.id, source: 'observed', confidence: 'high',
+      evidenceConnections: 3, evidenceShare: 1, forwardConfirmed: true, ttlHours: 24,
+    });
+
+    const rangeStart = new Date(timestampMs - 60_000).toISOString();
+    const rangeEnd = new Date(timestampMs + 60_000).toISOString();
+    const stats = db.getVendorStats(backendId, rangeStart, rangeEnd);
+    expect(stats.totals.find((item) => item.vendorId === bytedance.id)).toMatchObject({
+      upload: 100, download: 900, connections: 2,
+    });
+    expect(stats.totals.find((item) => item.vendorId === unknown.id)).toBeUndefined();
+    expect(stats.quality.recognizedTraffic).toBe(1000);
+    expect(db.repos.vendor.getEndpointStats(
+      backendId, bytedance.id, rangeStart, rangeEnd,
+    ).endpoints).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        endpointType: 'ip', endpoint: '49.7.200.54',
+        resolvedVendorName: 'ByteDance', resolutionConfidence: 'high',
+      }),
+    ]));
+    expect(db.repos.vendor.getEndpointStats(
+      backendId, unknown.id, rangeStart, rangeEnd,
+    ).endpoints).toHaveLength(0);
+
+    const rawDb = (db as unknown as { db: Database.Database }).db;
+    expect(rawDb.prepare(`
+      SELECT vendor_id FROM vendor_endpoint_hourly_stats
+      WHERE backend_id = ? AND endpoint = ?
+    `).get(backendId, '49.7.200.54')).toMatchObject({ vendor_id: unknown.id });
+  });
+
   it('keeps manual rules above built-in classification and rejects cross-vendor conflicts', () => {
     const vendor = db.createVendor({ slug: 'my-video', name: 'My Video' });
     db.updateVendor(vendor.id, {

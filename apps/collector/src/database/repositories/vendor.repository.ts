@@ -291,8 +291,7 @@ export class VendorRepository extends BaseRepository {
     }
     const hourlyCutoffMs = Date.now() - 365 * 24 * 60 * 60 * 1000;
     const useDaily = startMs < hourlyCutoffMs;
-    const table = useDaily ? 'vendor_daily_stats' : 'vendor_hourly_stats';
-    const protocolTable = useDaily ? 'vendor_protocol_daily_stats' : 'vendor_protocol_hourly_stats';
+    const endpointTable = useDaily ? 'vendor_endpoint_daily_stats' : 'vendor_endpoint_hourly_stats';
     const observabilityTable = useDaily ? 'traffic_observability_daily_stats' : 'traffic_observability_hourly_stats';
     const timeColumn = useDaily ? 'day' : 'hour';
     const startKey = useDaily ? start.slice(0, 10) : `${start.slice(0, 13)}:00:00`;
@@ -300,28 +299,39 @@ export class VendorRepository extends BaseRepository {
     const sourceFilter = sourceIP ? ' AND s.source_ip = @sourceIP' : '';
     const params = { backendId, start: startKey, end: endKey, sourceIP: sourceIP ?? '' };
 
+    const effectiveVendorId = `CASE
+      WHEN s.vendor_id = (SELECT id FROM vendors WHERE slug = 'unknown' LIMIT 1)
+        AND s.endpoint_type = 'ip'
+        AND e.status = 'resolved'
+        AND e.confidence = 'high'
+        AND e.vendor_id IS NOT NULL
+      THEN e.vendor_id
+      ELSE s.vendor_id
+    END`;
     const selectVendor = `
-      s.vendor_id, v.slug AS vendor_slug, v.name AS vendor_name, v.color,
+      ${effectiveVendorId} AS vendor_id, v.slug AS vendor_slug, v.name AS vendor_name, v.color,
       SUM(s.upload) AS upload, SUM(s.download) AS download,
       SUM(s.connections) AS connections
     `;
     const joinsAndWhere = `
-      FROM ${table} s
-      JOIN vendors v ON v.id = s.vendor_id
+      FROM ${endpointTable} s
+      LEFT JOIN ip_domain_enrichment_cache e
+        ON e.ip = s.endpoint AND s.endpoint_type = 'ip' AND e.expires_at > CURRENT_TIMESTAMP
+      JOIN vendors v ON v.id = ${effectiveVendorId}
       WHERE s.backend_id = @backendId AND s.${timeColumn} BETWEEN @start AND @end${sourceFilter}
     `;
 
     const totalRows = this.db.prepare(`
       SELECT ${selectVendor}
       ${joinsAndWhere}
-      GROUP BY s.vendor_id, v.slug, v.name, v.color
+      GROUP BY ${effectiveVendorId}, v.slug, v.name, v.color
       ORDER BY (SUM(s.upload) + SUM(s.download)) DESC
     `).all(params) as VendorAggregateRow[];
 
     const deviceRows = this.db.prepare(`
       SELECT ${selectVendor}, s.source_ip
       ${joinsAndWhere} AND s.source_ip <> ''
-      GROUP BY s.source_ip, s.vendor_id, v.slug, v.name, v.color
+      GROUP BY s.source_ip, ${effectiveVendorId}, v.slug, v.name, v.color
       ORDER BY (SUM(s.upload) + SUM(s.download)) DESC
       LIMIT 500
     `).all(params) as VendorAggregateRow[];
@@ -329,17 +339,15 @@ export class VendorRepository extends BaseRepository {
     const trendRows = this.db.prepare(`
       SELECT ${selectVendor}, s.${timeColumn} AS time
       ${joinsAndWhere}
-      GROUP BY s.${timeColumn}, s.vendor_id, v.slug, v.name, v.color
+      GROUP BY s.${timeColumn}, ${effectiveVendorId}, v.slug, v.name, v.color
       ORDER BY s.${timeColumn} ASC, (SUM(s.upload) + SUM(s.download)) DESC
       LIMIT 20000
     `).all(params) as VendorAggregateRow[];
 
     const protocolRows = this.db.prepare(`
       SELECT ${selectVendor}, s.transport, s.application_protocol, s.confidence
-      FROM ${protocolTable} s
-      JOIN vendors v ON v.id = s.vendor_id
-      WHERE s.backend_id = @backendId AND s.${timeColumn} BETWEEN @start AND @end${sourceFilter}
-      GROUP BY s.vendor_id, v.slug, v.name, v.color, s.transport, s.application_protocol, s.confidence
+      ${joinsAndWhere}
+      GROUP BY ${effectiveVendorId}, v.slug, v.name, v.color, s.transport, s.application_protocol, s.confidence
       ORDER BY (SUM(s.upload) + SUM(s.download)) DESC
     `).all(params) as VendorAggregateRow[];
 
@@ -355,6 +363,11 @@ export class VendorRepository extends BaseRepository {
     const recognizedTraffic = totalRows
       .filter((row) => row.vendor_slug !== 'unknown')
       .reduce((sum, row) => sum + row.upload + row.download, 0);
+    const recognizedDomainTraffic = this.db.prepare(`
+      SELECT COALESCE(SUM(s.upload + s.download), 0) AS total
+      ${joinsAndWhere} AND s.endpoint_type = 'domain'
+        AND ${effectiveVendorId} <> (SELECT id FROM vendors WHERE slug = 'unknown' LIMIT 1)
+    `).get(params) as { total: number };
     const observedTotal = observability.total || totalTraffic;
     const domainObservedTraffic = observability.total > 0 ? observability.domain_observed : 0;
     const percent = (numerator: number, denominator: number) => denominator > 0 ? numerator / denominator : 0;
@@ -382,7 +395,7 @@ export class VendorRepository extends BaseRepository {
         domainObservedTraffic,
         totalRecognitionRate: percent(recognizedTraffic, observedTotal),
         domainObservationRate: percent(domainObservedTraffic, observedTotal),
-        recognizedDomainRate: percent(recognizedTraffic, domainObservedTraffic),
+        recognizedDomainRate: percent(recognizedDomainTraffic.total, domainObservedTraffic),
       },
     };
   }
@@ -401,7 +414,15 @@ export class VendorRepository extends BaseRepository {
       throw new Error('Invalid time range');
     }
     const useDaily = endMs - startMs > 48 * 60 * 60 * 1000;
-    const table = useDaily ? 'vendor_endpoint_daily_stats' : 'vendor_endpoint_hourly_stats';
+    const effectiveVendorId = `CASE
+      WHEN s.vendor_id = (SELECT id FROM vendors WHERE slug = 'unknown' LIMIT 1)
+        AND s.endpoint_type = 'ip'
+        AND e.status = 'resolved'
+        AND e.confidence = 'high'
+        AND e.vendor_id IS NOT NULL
+      THEN e.vendor_id
+      ELSE s.vendor_id
+    END`;
     const timeColumn = useDaily ? 'day' : 'hour';
     const startKey = useDaily ? start.slice(0, 10) : `${start.slice(0, 13)}:00:00`;
     const endKey = useDaily ? end.slice(0, 10) : `${end.slice(0, 13)}:00:00`;
@@ -413,9 +434,11 @@ export class VendorRepository extends BaseRepository {
              SUM(upload) AS upload, SUM(download) AS download,
              SUM(connections) AS connections,
              COUNT(DISTINCT NULLIF(source_ip, '')) AS devices
-      FROM ${table}
-      WHERE backend_id = @backendId AND vendor_id = @vendorId
-        AND ${timeColumn} BETWEEN @start AND @end${sourceFilter}
+      FROM ${useDaily ? 'vendor_endpoint_daily_stats' : 'vendor_endpoint_hourly_stats'} s
+      LEFT JOIN ip_domain_enrichment_cache e
+        ON e.ip = s.endpoint AND s.endpoint_type = 'ip' AND e.expires_at > CURRENT_TIMESTAMP
+      WHERE s.backend_id = @backendId AND ${effectiveVendorId} = @vendorId
+        AND s.${timeColumn} BETWEEN @start AND @end${sourceFilter}
       GROUP BY endpoint_type, endpoint
       ORDER BY (SUM(upload) + SUM(download)) DESC
       LIMIT @limit
@@ -425,13 +448,15 @@ export class VendorRepository extends BaseRepository {
     }>;
 
     const protocolStmt = this.db.prepare(`
-      SELECT transport, application_protocol, confidence,
+      SELECT s.transport, s.application_protocol, s.confidence,
              SUM(upload + download) AS traffic
-      FROM ${table}
-      WHERE backend_id = @backendId AND vendor_id = @vendorId
-        AND endpoint_type = @endpointType AND endpoint = @endpoint
-        AND ${timeColumn} BETWEEN @start AND @end${sourceFilter}
-      GROUP BY transport, application_protocol, confidence
+      FROM ${useDaily ? 'vendor_endpoint_daily_stats' : 'vendor_endpoint_hourly_stats'} s
+      LEFT JOIN ip_domain_enrichment_cache e
+        ON e.ip = s.endpoint AND s.endpoint_type = 'ip' AND e.expires_at > CURRENT_TIMESTAMP
+      WHERE s.backend_id = @backendId AND ${effectiveVendorId} = @vendorId
+        AND s.endpoint_type = @endpointType AND s.endpoint = @endpoint
+        AND s.${timeColumn} BETWEEN @start AND @end${sourceFilter}
+      GROUP BY s.transport, s.application_protocol, s.confidence
       ORDER BY traffic DESC
       LIMIT 1
     `);

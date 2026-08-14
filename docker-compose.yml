@@ -1,7 +1,7 @@
 services:
   neko-master:
     build: .
-    image: uggugg/home-network-monitor:1.0.3
+    image: uggugg/home-network-monitor:1.0.4
     container_name: neko-master-home
     restart: unless-stopped
     stop_grace_period: 30s
