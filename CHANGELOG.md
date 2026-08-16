@@ -5,6 +5,29 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.1.0] - 2026-08-16
+
+### 新增
+
+- 厂商自动化证据收集：后台每 6 小时探测 Unknown 根域名与 Unknown IP，保存 DNS/CNAME/HTTP/RDAP/PTR/历史关联证据，并在页面展示最近运行状态。
+- 智能厂商建议：基于 CNAME 链命中、页面标题、RDAP 机构等证据评分，生成 high/medium 待确认建议；采用后自动写入 manual 规则并重分类近 30 天。
+- `VENDOR_AUTOMATION_AUTO_APPLY=1` 默认策略：仅自动采用无歧义的高置信建议（首个建议 high 且分数不低于 75，且不存在接近的高置信第二建议）；中置信度始终等待人工确认。
+- V2Fly 动态分类发现：同步时先读取 `data/` 目录，若启用厂商的名称或 slug 与已有分类一致，则自动纳入同步，不再依赖固定 22 个映射。
+- 家庭网络高置信规则包 v2026-08-16.1：新增/补全 Meituan、New Relic、Postman、LaunchDarkly、jsDelivr、Shopify、央视网、人民网，以及 Docker/X/DeepSeek/Notion/TP-LINK/京东/拼多多/携程/快手等已有厂商的缺口域名。
+- 厂商页新增 sniffer 影响估算、智能建议表、立即收集证据按钮；`/api/vendors/automation` 返回建议、证据统计和 sniffer 影响。
+- 新增 `vendor_evidence`、`vendor_suggestions`、`vendor_suggestion_actions`、`vendor_automation_state` 四张表，全部为非破坏性 `CREATE TABLE IF NOT EXISTS`。
+
+### 修复
+
+- 将 Next.js 从 `16.2.7` 固定到 `16.1.7`，规避 16.2.x 在预渲染合成 `/_global-error` 路由时触发 `Invariant: Expected workStore to be initialized` 的构建失败。
+- 新增 `apps/web/globals.d.ts` 的 `*.css` 模块声明，兼容 Next 16.1 + TypeScript 6 的生产构建类型检查。
+- Web 生产构建已恢复通过（`next build --webpack`）。
+
+### 优化
+
+- 手动域名探测的建议依据从仅 manual 规则扩展到 manual + builtin 规则和 CNAME 线索。
+- IP enrichment 支持 `stop()`，服务关闭后不再向已关闭数据库写入延迟返回的 DNS 结果。
+
 ## [1.0.5] - 2026-08-14
 
 ### 修复

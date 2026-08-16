@@ -16,6 +16,7 @@ const DNS_TIMEOUT_MS = 3000;
 
 export class VendorIPEnrichmentService {
   private readonly pending = new Set<string>();
+  private stopping = false;
 
   constructor(
     private readonly db: StatsDatabase,
@@ -27,7 +28,12 @@ export class VendorIPEnrichmentService {
    * Resolve local observations synchronously so they are visible in the
    * current response. PTR and GeoIP lookups continue in the background.
    */
+  stop(): void {
+    this.stopping = true;
+  }
+
   prepare(ips: string[]): boolean {
+    if (this.stopping) return false;
     let changed = false;
     for (const ip of [...new Set(ips)]) {
       if (!isIP(ip) || this.db.repos.vendor.getIPDomainEnrichment(ip)) continue;
@@ -53,7 +59,7 @@ export class VendorIPEnrichmentService {
   }
 
   private schedulePTR(ip: string): void {
-    if (this.pending.has(ip)) return;
+    if (this.stopping || this.pending.has(ip)) return;
     this.pending.add(ip);
     void this.resolvePTR(ip).finally(() => this.pending.delete(ip));
     if (this.geoService) {
@@ -65,9 +71,11 @@ export class VendorIPEnrichmentService {
     try {
       const names = await this.withTimeout(this.resolver.reverse(ip));
       for (const rawName of names.slice(0, 10)) {
+        if (this.stopping) return;
         const domain = normalizeDomain(rawName);
         if (!domain || domain.length > 253 || !domain.includes('.')) continue;
         const addresses = await this.forwardAddresses(domain, isIP(ip));
+        if (this.stopping) return;
         if (!addresses.includes(ip)) continue;
 
         const classification = this.db.repos.vendor.classifyDomain(domain);
@@ -100,6 +108,7 @@ export class VendorIPEnrichmentService {
   }
 
   private saveUnresolved(ip: string, error: string): void {
+    if (this.stopping) return;
     this.db.repos.vendor.saveIPDomainEnrichment({
       ip,
       status: 'unresolved',

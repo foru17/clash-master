@@ -5,9 +5,11 @@
 本分支固定在上游 `foru17/neko-master` 提交 `6f72cfd0db69e2952713f24a648812407fef1e78`，新增：
 
 - 按终端统计上传、下载与连接数（沿用 Neko Master 的 OpenClash/Mihomo 采集）。
-- 基于域名的厂商识别：手工规则优先，自动同步 V2Fly `domain-list-community` 中 22 个选定厂商分类；规则按 Git commit 固定版本，冲突规则隔离，失败时继续使用最后一次成功版本。
+- 基于域名的厂商识别：手工规则优先，自动同步 V2Fly `domain-list-community`；同步前先读取数据目录，把启用厂商的名称或 slug 与已有分类自动匹配，再合并固定映射。规则按 Git commit 固定版本，冲突规则隔离，失败时继续使用最后一次成功版本。
 - 内置版本化家庭网络高置信规则包，覆盖业务域名、CDN 包裹别名、CDN 基础设施、终端厂商、自建办公服务和测速服务；规则包升级后自动重算仍保留域名明细的近期历史。
 - Unknown 流量自动按公共后缀表归并为候选根域名，并按流量、连接和终端数排序，便于后续补规则。
+- 后台自动化证据收集：默认每 6 小时对 Unknown 根域名执行 DNS/CNAME/HTTPS/RDAP 探测，对 Unknown IP 执行历史域名关联与 PTR 验证；证据缓存 7 天。
+- 智能厂商建议与自动采用：高置信且无歧义的建议默认自动写入规则并重分类近 30 天（`VENDOR_AUTOMATION_AUTO_APPLY=1`）；中置信度等待页面一键确认。
 - `厂商 × 终端 × 小时` 与 `厂商 × 协议 × 终端 × 小时` 保存 365 天，日聚合长期保存。
 - 厂商可以下钻到 TCP/UDP 以及 HTTP、HTTPS/TLS、QUIC/HTTP3、DNS/DoT、其他协议；应用协议来自传输层与端口推断，并明确显示置信度。
 - Ping、TCP、HTTP、DNS 可用性监控，支持连续失败、恢复确认、延迟、事件和 Webhook。
@@ -72,6 +74,8 @@ docker compose logs --tail=200 neko-master
 
 自动规则默认每 24 小时检查一次。只有完整下载、解析和冲突检查都成功后才原子替换旧规则；规则版本变化后自动重算近 30 天厂商、识别质量和 Unknown 候选。协议字段不存在于旧历史明细中，因此协议下钻从升级后的新流量开始积累；页面会把缺失部分标记为“历史重分类 · 协议未保留”，不会伪造回填。
 
+厂商证据自动化默认每 6 小时运行一次，只处理近 30 天、流量不低于 `VENDOR_AUTOMATION_MIN_TRAFFIC_BYTES`（默认 1 MiB）的 Unknown 候选。外部探测仅针对本网络已经出现过的域名/IP，并对 DNS/HTTP/RDAP 设置并发与超时限制。默认 `VENDOR_AUTOMATION_AUTO_APPLY=1` 只自动采用无歧义的高置信建议；设为 `0` 可让全部建议进入待确认队列。
+
 页面会只读检测 OpenClash sniffer 状态。当前实现不会自动修改 OpenClash 配置；sniffer 关闭时仍可按 `network + destinationPort` 统计协议，但无法仅靠端口识别所有非常规端口上的 TLS/QUIC。
 
 启用 sniffer 后，Mihomo 会从 HTTP Host、TLS SNI 和 QUIC 初始握手中恢复域名，不会解密 TLS 正文。收益是减少纯 IP Unknown 并改善域名规则命中；代价是首包解析、少量 CPU/内存开销，以及个别应用兼容风险。尤其当 `override-destination: true` 时，嗅探域名可能替换原目标并触发重新解析，从而改变路由行为。家庭网络建议先备份配置，优先使用 `override-destination: false`，从标准 HTTP/TLS/QUIC 端口开始，并通过 `skip-domain`、`skip-src-address` 或 `skip-dst-address` 排除异常设备/服务；出现断流、登录失败、推送延迟或游戏异常时立即关闭 sniffer 回滚。
@@ -107,7 +111,11 @@ docker compose up -d
 |---|---|
 | `GET /api/vendors` | 厂商与域名规则 |
 | `GET /api/vendors/stats` | 厂商总量、终端拆分、协议、识别质量和时间趋势 |
-| `GET /api/vendors/automation` | 自动目录状态、Unknown 候选与 sniffer 状态 |
+| `GET /api/vendors/automation` | 自动目录状态、Unknown 候选、智能建议、证据统计与 sniffer 影响 |
+| `POST /api/vendors/automation/run` | 立即运行一次证据收集与建议生成 |
+| `GET /api/vendors/suggestions` | 查询厂商智能建议 |
+| `POST /api/vendors/suggestions/:id/apply` | 采用建议并写入手动规则 |
+| `POST /api/vendors/suggestions/:id/dismiss` | 忽略建议 |
 | `POST /api/vendors/catalog/sync` | 立即同步规则并重算近 30 天 |
 | `POST /api/vendors/reclassify` | 手动重算最近 1–365 天厂商历史 |
 | `POST/PUT /api/vendors` | 新增或调整厂商规则 |

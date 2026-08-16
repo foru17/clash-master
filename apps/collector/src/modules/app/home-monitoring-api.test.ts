@@ -61,4 +61,43 @@ describe('Home monitoring API', () => {
     const deleteResponse = await app.inject({ method: 'DELETE', url: `/api/monitors/${monitor.id}` });
     expect(deleteResponse.statusCode).toBe(200);
   });
+
+  it('serves vendor automation status and applies pending suggestions', async () => {
+    const vendor = db.createVendor({ slug: 'testco', name: 'TestCo' });
+    const created = db.repos.vendor.upsertSuggestion({
+      backendId,
+      subjectType: 'domain',
+      subject: 'widget.test',
+      suggestedVendorId: vendor.id,
+      confidence: 'high',
+      score: 90,
+      reasons: ['cname:edge.testco.test'],
+      trafficBytes: 2_000_000,
+      devices: 1,
+    });
+    expect(created.created).toBe(true);
+
+    const automationResponse = await app.inject({
+      method: 'GET',
+      url: `/api/vendors/automation?backendId=${backendId}`,
+    });
+    expect(automationResponse.statusCode).toBe(200);
+    const automation = automationResponse.json() as {
+      suggestions?: Array<{ id: number }>;
+      evidenceStats?: { pendingSuggestionCount: number };
+      snifferImpact?: { totalTraffic: number };
+    };
+    expect(automation.suggestions).toHaveLength(1);
+    expect(automation.evidenceStats?.pendingSuggestionCount).toBe(1);
+    expect(automation.snifferImpact?.totalTraffic).toBeTypeOf('number');
+
+    const applyResponse = await app.inject({
+      method: 'POST',
+      url: `/api/vendors/suggestions/${created.id}/apply`,
+    });
+    expect(applyResponse.statusCode).toBe(200);
+    expect(db.getVendors().find((item) => item.id === vendor.id)?.rules.some(
+      (rule) => rule.pattern === 'widget.test' && rule.source === 'manual',
+    )).toBe(true);
+  });
 });

@@ -15,7 +15,7 @@
 
 > 家庭网络版已实现厂商级 365 天历史与轻量可用性监控。部署说明见 [家庭网络版部署指南](docs/home-network-deployment.zh.md)，容量基准见 [SQLite 容量与性能](docs/sqlite-capacity.zh.md)。
 
-> **当前版本重点（v1.0.4）**：本项目当前重点建设两类家庭网络能力——**厂商流量模型**与**可用性监控模型**。前者回答“哪个终端访问了哪个厂商、使用什么协议、流量有多少”；后者回答“网络设备或服务是否可用、延迟如何、何时发生故障”。现在，高置信度的 IP 到域名关联会纳入厂商汇总，同时保留原始记录不被改写。
+> **当前版本重点（v1.1.0）**：在**厂商流量模型**与**可用性监控模型**之上，新增厂商自动化证据收集与智能建议：后台探测 Unknown 域名/IP，生成高/中置信度建议，默认自动采用无歧义的高置信结果并重分类近 30 天历史。
 
 > 本项目由 [zhangjf108/Home-Network-Monitor](https://github.com/zhangjf108/Home-Network-Monitor) 维护，基于 MIT 许可的 [foru17/neko-master](https://github.com/foru17/neko-master) 二次开发，并保留上游版权与许可声明。
 
@@ -147,6 +147,9 @@ SQLITE_RETENTION_MONITOR_HOURLY_DAYS=365
 VENDOR_CATALOG_AUTO_UPDATE=1
 VENDOR_CATALOG_INTERVAL_HOURS=24
 VENDOR_CATALOG_BACKFILL_DAYS=30
+VENDOR_AUTOMATION_ENABLED=1
+VENDOR_AUTOMATION_INTERVAL_HOURS=6
+VENDOR_AUTOMATION_AUTO_APPLY=1
 ```
 
 保留期也可以在“设置 → 数据库”中按数据层分别调整；界面配置会持久化到 SQLite。

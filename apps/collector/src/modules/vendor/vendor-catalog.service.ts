@@ -7,6 +7,7 @@ import {
 } from '@neko-master/shared';
 import type { StatsDatabase } from '../db/db.js';
 import type {
+  BuiltinVendorRuleSpec,
   CatalogRuleInput,
   ReclassificationResult,
 } from '../../database/repositories/vendor.repository.js';
@@ -16,7 +17,8 @@ const SOURCE_KEY = 'v2fly';
 const SOURCE_URL = 'https://github.com/v2fly/domain-list-community';
 const COMMIT_URL = 'https://api.github.com/repos/v2fly/domain-list-community/commits/master';
 const RAW_BASE_URL = 'https://raw.githubusercontent.com/v2fly/domain-list-community';
-const BUILTIN_RULE_PACK_VERSION = '2026-08-13.3';
+const DATA_LIST_URL = 'https://api.github.com/repos/v2fly/domain-list-community/contents/data';
+const BUILTIN_RULE_PACK_VERSION = '2026-08-16.1';
 
 export const VENDOR_CATALOG_MAPPINGS: Record<string, string[]> = {
   apple: ['apple'],
@@ -43,6 +45,31 @@ export const VENDOR_CATALOG_MAPPINGS: Record<string, string[]> = {
   baidu: ['baidu'],
 };
 
+/**
+ * Versioned home-network rule pack. Specs use vendorName as a fallback so the
+ * pack can attach rules to user-created vendors (for example custom Docker or
+ * X vendors) instead of creating duplicate dictionaries on existing installs.
+ */
+export const HOME_AUTOMATION_RULE_PACK: BuiltinVendorRuleSpec[] = [
+  { vendorSlug: 'docker', vendorName: 'Docker', patterns: [{ pattern: 'docker.com' }, { pattern: 'docker.io' }, { pattern: 'dockerstatic.com' }] },
+  { vendorSlug: 'x', vendorName: 'X', patterns: [{ pattern: 'x.com' }, { pattern: 'twitter.com' }, { pattern: 'twimg.com' }, { pattern: 't.co' }] },
+  { vendorSlug: 'deepseek', vendorName: 'DeepSeek', patterns: [{ pattern: 'deepseek.com' }] },
+  { vendorSlug: 'notion', vendorName: 'Notion', patterns: [{ pattern: 'notion.so' }, { pattern: 'notion.site' }] },
+  { vendorSlug: 'tplink', vendorName: 'TP-LINK', patterns: [{ pattern: 'tp-link.com.cn' }, { pattern: 'tplinkcloud.com.cn' }, { pattern: 'tplinkcloud.com' }] },
+  { vendorSlug: 'jd', vendorName: '京东', patterns: [{ pattern: 'jd.com' }, { pattern: '360buyimg.com' }] },
+  { vendorSlug: 'pinduoduo', vendorName: '拼多多', patterns: [{ pattern: 'pinduoduo.com' }, { pattern: 'pddpic.com' }, { pattern: 'yangkeduo.com' }] },
+  { vendorSlug: 'ctrip', vendorName: '携程', patterns: [{ pattern: 'ctrip.com' }, { pattern: 'trip.com' }] },
+  { vendorSlug: 'kuaishou', vendorName: '快手', patterns: [{ pattern: 'kuaishou.com' }, { pattern: 'yximgs.com' }] },
+  { vendorSlug: 'meituan', vendorName: 'Meituan', vendorColor: '#ffc300', patterns: [{ pattern: 'meituan.com' }, { pattern: 'meituan.net' }] },
+  { vendorSlug: 'new-relic', vendorName: 'New Relic', vendorColor: '#00cece', patterns: [{ pattern: 'newrelic.com' }, { pattern: 'nr-data.net' }] },
+  { vendorSlug: 'postman', vendorName: 'Postman', vendorColor: '#ff6c37', patterns: [{ pattern: 'postman.com' }, { pattern: 'postman.co' }] },
+  { vendorSlug: 'launchdarkly', vendorName: 'LaunchDarkly', vendorColor: '#2c2e33', patterns: [{ pattern: 'launchdarkly.com' }] },
+  { vendorSlug: 'jsdelivr', vendorName: 'jsDelivr', vendorColor: '#e84d3d', patterns: [{ pattern: 'jsdelivr.net' }] },
+  { vendorSlug: 'shopify', vendorName: 'Shopify', vendorColor: '#95bf47', patterns: [{ pattern: 'shopify.com' }, { pattern: 'shopifyapps.com' }] },
+  { vendorSlug: 'cntv', vendorName: '央视网 / CNTV', vendorColor: '#b4171e', patterns: [{ pattern: 'cntv.cn' }, { pattern: 'cctvpic.com' }] },
+  { vendorSlug: 'people', vendorName: '人民网', vendorColor: '#c7000b', patterns: [{ pattern: 'people.com.cn' }] },
+];
+
 type FetchLike = typeof fetch;
 type ParsedDomainRule = { pattern: string; matchType: 'exact' | 'suffix' };
 type ParsedCatalog = {
@@ -50,6 +77,30 @@ type ParsedCatalog = {
   conflictCount: number;
   excludedCount: number;
 };
+
+async function fetchAvailableV2FlyCategories(
+  revision: string,
+  fetchImpl: FetchLike,
+): Promise<Set<string>> {
+  const response = await fetchImpl(`${DATA_LIST_URL}?ref=${encodeURIComponent(revision)}`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'neko-master-home-vendor-catalog',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    throw new Error(`V2Fly data directory API returned HTTP ${response.status}`);
+  }
+  const body = await response.json() as Array<{ name?: unknown; type?: unknown }>;
+  return new Set(
+    body
+      .filter((entry) => entry.type === 'file' && typeof entry.name === 'string')
+      .map((entry) => (entry.name as string).trim().toLowerCase())
+      .filter((name) => name && name !== 'readme.md'),
+  );
+}
 
 function parseLine(line: string):
   | { kind: 'include'; value: string }
@@ -75,7 +126,35 @@ function parseLine(line: string):
 export async function loadV2FlyCatalog(
   revision: string,
   fetchImpl: FetchLike = fetch,
+  extraVendors: Array<{ slug: string; name: string }> = [],
 ): Promise<ParsedCatalog> {
+  let availableCategories = new Set<string>();
+  try {
+    availableCategories = await fetchAvailableV2FlyCategories(revision, fetchImpl);
+  } catch (error) {
+    console.warn('[VendorCatalog] Category discovery failed; using static mappings only:', error);
+  }
+  const mappings = new Map<string, string[]>(
+    Object.entries(VENDOR_CATALOG_MAPPINGS).map(([slug, categories]) => [slug, [...categories]]),
+  );
+  const usedCategories = new Set(
+    [...mappings.values()].flat().map((category) => category.trim().toLowerCase()),
+  );
+  for (const rawVendor of extraVendors) {
+    const slug = rawVendor.slug.trim().toLowerCase();
+    if (!slug || slug === 'unknown' || mappings.has(slug)) continue;
+    const candidates = new Set<string>([
+      slug,
+      ...slug.split(/[^a-z0-9]+/).filter((part) => part.length >= 3),
+      ...rawVendor.name.toLowerCase().split(/[^a-z0-9]+/).filter((part) => part.length >= 3),
+    ]);
+    const category = [...candidates].find((candidate) =>
+      availableCategories.has(candidate) && !usedCategories.has(candidate),
+    );
+    if (!category) continue;
+    mappings.set(slug, [category]);
+    usedCategories.add(category);
+  }
   const categoryCache = new Map<string, Promise<ParsedDomainRule[]>>();
   let unsupportedCount = 0;
 
@@ -109,7 +188,7 @@ export async function loadV2FlyCatalog(
   };
 
   const candidates: CatalogRuleInput[] = [];
-  await Promise.all(Object.entries(VENDOR_CATALOG_MAPPINGS).map(async ([vendorSlug, categories]) => {
+  await Promise.all([...mappings.entries()].map(async ([vendorSlug, categories]) => {
     const categoryRules = await Promise.all(categories.map((category) => loadCategory(category)));
     for (const rule of categoryRules.flat()) {
       candidates.push({
@@ -202,10 +281,14 @@ export class VendorCatalogService {
       ),
     );
     try {
+      const applied = this.db.repos.vendor.applyBuiltinRulePack(
+        BUILTIN_RULE_PACK_VERSION,
+        HOME_AUTOMATION_RULE_PACK,
+      );
       const reclassification = this.db.repos.vendor.reclassifyRecentHistory(backfillDays);
       this.db.repos.vendor.markBuiltinRulePackApplied(BUILTIN_RULE_PACK_VERSION);
       console.info(
-        `[VendorCatalog] Applied built-in rule pack ${BUILTIN_RULE_PACK_VERSION}; reclassified ${reclassification.scannedRows} rows in ${reclassification.durationMs}ms`,
+        `[VendorCatalog] Applied built-in rule pack ${BUILTIN_RULE_PACK_VERSION}; inserted ${applied.inserted} rules, skipped ${applied.skipped}; reclassified ${reclassification.scannedRows} rows in ${reclassification.durationMs}ms`,
       );
     } catch (error) {
       console.warn('[VendorCatalog] Built-in rule pack reclassification failed; will retry on restart:', error);
@@ -254,7 +337,10 @@ export class VendorCatalogService {
         };
       }
 
-      const catalog = await loadV2FlyCatalog(revision, this.fetchImpl);
+      const extraVendors = this.db.getVendors()
+        .filter((vendor) => vendor.enabled && vendor.slug !== 'unknown')
+        .map((vendor) => ({ slug: vendor.slug, name: vendor.name }));
+      const catalog = await loadV2FlyCatalog(revision, this.fetchImpl, extraVendors);
       const inserted = this.db.repos.vendor.applyCatalog({
         sourceKey: SOURCE_KEY,
         sourceUrl: SOURCE_URL,

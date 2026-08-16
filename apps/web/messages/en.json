@@ -172,7 +172,6 @@
     "ipCount": "IPs",
     "proxy": "Proxy",
     "proxyTraffic": "Proxy Traffic Breakdown",
-
     "domainsCount": "domains",
     "showing": "Showing",
     "of": "of",
@@ -603,7 +602,10 @@
     "probeError": "Not available",
     "probeSuggestions": "Vendor suggestions",
     "probeSuggestionHint": "Suggestions are only clues. Confirm the vendor before adding a rule.",
-    "probeConfidence": { "high": "High confidence", "medium": "Medium confidence" },
+    "probeConfidence": {
+      "high": "High confidence",
+      "medium": "Medium confidence"
+    },
     "addProbeRule": "Add to this vendor",
     "addProbeRuleChoose": "Choose vendor and add",
     "vendorNotFound": "Vendor not found",
@@ -674,7 +676,24 @@
       "syncing": "Syncing",
       "success": "Healthy",
       "failed": "Failed (last good retained)"
-    }
+    },
+    "runAutomation": "Collect evidence",
+    "automationRunFinished": "Automation finished: processed {domains} domains, created {suggestions} suggestions, auto-applied {autoApplied}",
+    "automationRunFailed": "Automated evidence collection failed",
+    "snifferImpactTitle": "Sniffer impact estimate (last 7 days)",
+    "snifferImpactText": "Pure-IP Unknown traffic {unknown} / total {total}; recoverable protocols account for about {rate}% ({protocols}). Enabling sniffer only improves future data and cannot backfill lost history.",
+    "vendorSuggestions": "Vendor suggestions",
+    "vendorSuggestionsHint": "Generated from DNS, CNAME, HTTPS, and RDAP evidence. With AUTO_APPLY=1, unambiguous high-confidence entries are applied automatically; review the rest manually.",
+    "suggestedVendor": "Suggested vendor",
+    "suggestionConfidence": {
+      "high": "High",
+      "medium": "Medium"
+    },
+    "applySuggestion": "Apply",
+    "dismissSuggestion": "Dismiss",
+    "suggestionApplied": "Suggestion applied and {rows} history rows reclassified",
+    "suggestionApplyFailed": "Failed to apply suggestion",
+    "suggestionDismissFailed": "Failed to dismiss suggestion"
   },
   "availability": {
     "title": "Network Availability",
@@ -720,9 +739,23 @@
     "retries": "Consecutive failures",
     "cancel": "Cancel",
     "create": "Create",
-    "types": { "icmp": "Ping", "tcp": "TCP port", "http": "HTTP", "dns": "DNS" },
-    "status": { "pending": "Pending", "up": "Online", "down": "Offline", "degraded": "Degraded", "paused": "Paused" },
-    "incident": { "open": "Open", "resolved": "Resolved" }
+    "types": {
+      "icmp": "Ping",
+      "tcp": "TCP port",
+      "http": "HTTP",
+      "dns": "DNS"
+    },
+    "status": {
+      "pending": "Pending",
+      "up": "Online",
+      "down": "Offline",
+      "degraded": "Degraded",
+      "paused": "Paused"
+    },
+    "incident": {
+      "open": "Open",
+      "resolved": "Resolved"
+    }
   },
   "health": {
     "title": "Node Health",

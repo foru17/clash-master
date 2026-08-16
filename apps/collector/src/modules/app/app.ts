@@ -23,7 +23,7 @@ import { BackendService, backendController } from '../backend/index.js';
 import { StatsService, statsController } from '../stats/index.js';
 import { AuthService, authController } from '../auth/index.js';
 import { configController } from '../config/index.js';
-import { VendorCatalogService, VendorIPEnrichmentService, VendorProbeService, vendorController } from '../vendor/index.js';
+import { VendorAutomationService, VendorCatalogService, VendorIPEnrichmentService, VendorProbeService, vendorController } from '../vendor/index.js';
 import { MonitorService, monitorController } from '../monitor/index.js';
 
 // Extend Fastify instance to include services
@@ -37,6 +37,7 @@ declare module 'fastify' {
     vendorCatalogService: VendorCatalogService;
     vendorIPEnrichmentService: VendorIPEnrichmentService;
     vendorProbeService: VendorProbeService;
+    vendorAutomationService: VendorAutomationService;
     clearAgentRuntimeState?: (backendId?: number) => void;
     notifyBackendDataCleared?: (backendId: number) => void;
   }
@@ -52,6 +53,7 @@ export interface AppOptions {
   vendorCatalogService?: VendorCatalogService;
   vendorIPEnrichmentService?: VendorIPEnrichmentService;
   vendorProbeService?: VendorProbeService;
+  vendorAutomationService?: VendorAutomationService;
   autoListen?: boolean;
   onTrafficIngested?: (backendId: number) => void;
   onBackendDataCleared?: (backendId: number) => void;
@@ -118,6 +120,7 @@ export async function createApp(options: AppOptions) {
     vendorCatalogService: providedVendorCatalogService,
     vendorIPEnrichmentService: providedVendorIPEnrichmentService,
     vendorProbeService: providedVendorProbeService,
+    vendorAutomationService: providedVendorAutomationService,
     autoListen = true,
     onTrafficIngested,
     onBackendDataCleared,
@@ -361,6 +364,8 @@ export async function createApp(options: AppOptions) {
   const vendorIPEnrichmentService =
     providedVendorIPEnrichmentService ?? new VendorIPEnrichmentService(db, geoService);
   const vendorProbeService = providedVendorProbeService ?? new VendorProbeService(db);
+  const vendorAutomationService =
+    providedVendorAutomationService ?? new VendorAutomationService(db, vendorIPEnrichmentService);
 
   // Decorate Fastify instance with services
   app.decorate('backendService', backendService);
@@ -369,6 +374,7 @@ export async function createApp(options: AppOptions) {
   app.decorate('vendorCatalogService', vendorCatalogService);
   app.decorate('vendorIPEnrichmentService', vendorIPEnrichmentService);
   app.decorate('vendorProbeService', vendorProbeService);
+  app.decorate('vendorAutomationService', vendorAutomationService);
   app.decorate('authService', authService);
   app.decorate('db', db);
   app.decorate('realtimeStore', realtimeStore);
@@ -1430,6 +1436,7 @@ export class APIServer {
   private vendorCatalogService?: VendorCatalogService;
   private vendorIPEnrichmentService?: VendorIPEnrichmentService;
   private vendorProbeService?: VendorProbeService;
+  private vendorAutomationService?: VendorAutomationService;
   private onTrafficIngested?: (backendId: number) => void;
   private onBackendDataCleared?: (backendId: number) => void;
 
@@ -1444,6 +1451,7 @@ export class APIServer {
     onTrafficIngested?: (backendId: number) => void,
     onBackendDataCleared?: (backendId: number) => void,
     vendorProbeService?: VendorProbeService,
+    vendorAutomationService?: VendorAutomationService,
   ) {
     this.port = port;
     this.db = db;
@@ -1453,6 +1461,7 @@ export class APIServer {
     this.vendorCatalogService = vendorCatalogService;
     this.vendorIPEnrichmentService = vendorIPEnrichmentService;
     this.vendorProbeService = vendorProbeService;
+    this.vendorAutomationService = vendorAutomationService;
     this.onTrafficIngested = onTrafficIngested;
     this.onBackendDataCleared = onBackendDataCleared;
   }
@@ -1467,6 +1476,7 @@ export class APIServer {
       vendorCatalogService: this.vendorCatalogService,
       vendorIPEnrichmentService: this.vendorIPEnrichmentService,
       vendorProbeService: this.vendorProbeService,
+      vendorAutomationService: this.vendorAutomationService,
       onTrafficIngested: this.onTrafficIngested,
       onBackendDataCleared: this.onBackendDataCleared,
       logger: false,

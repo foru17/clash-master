@@ -171,7 +171,6 @@
     "ipCount": "IP数",
     "proxy": "代理节点",
     "proxyTraffic": "代理节点流量明细",
-
     "domainsCount": "个域名",
     "showing": "显示",
     "of": "共",
@@ -602,7 +601,10 @@
     "probeError": "未获取到",
     "probeSuggestions": "厂商建议",
     "probeSuggestionHint": "建议仅作线索，请确认厂商后再加入规则。",
-    "probeConfidence": { "high": "高置信度", "medium": "中置信度" },
+    "probeConfidence": {
+      "high": "高置信度",
+      "medium": "中置信度"
+    },
     "addProbeRule": "加入此厂商规则",
     "addProbeRuleChoose": "选择厂商后加入",
     "vendorNotFound": "未找到厂商",
@@ -673,7 +675,24 @@
       "syncing": "同步中",
       "success": "正常",
       "failed": "失败（使用上次规则）"
-    }
+    },
+    "runAutomation": "收集证据",
+    "automationRunFinished": "自动收集完成：处理 {domains} 个域名，新增 {suggestions} 条建议，自动采用 {autoApplied} 条",
+    "automationRunFailed": "自动证据收集失败",
+    "snifferImpactTitle": "Sniffer 影响估算（近 7 天）",
+    "snifferImpactText": "纯 IP Unknown 流量 {unknown} / 总流量 {total}；其中协议可恢复部分约占 {rate}%（{protocols}）。开启 sniffer 只会改善未来数据，不会回填已丢失的历史。",
+    "vendorSuggestions": "智能厂商建议",
+    "vendorSuggestionsHint": "由 DNS、CNAME、HTTPS 与 RDAP 证据自动生成。按当前 AUTO_APPLY=1 策略，高置信且无歧义的条目会自动写入规则；其余请人工确认。",
+    "suggestedVendor": "建议厂商",
+    "suggestionConfidence": {
+      "high": "高置信",
+      "medium": "中置信"
+    },
+    "applySuggestion": "采用",
+    "dismissSuggestion": "忽略",
+    "suggestionApplied": "已采用并写入规则，重分类 {rows} 条历史统计",
+    "suggestionApplyFailed": "采用建议失败",
+    "suggestionDismissFailed": "忽略建议失败"
   },
   "availability": {
     "title": "网络可用性",
@@ -719,9 +738,23 @@
     "retries": "连续失败次数",
     "cancel": "取消",
     "create": "创建",
-    "types": { "icmp": "Ping", "tcp": "TCP 端口", "http": "HTTP", "dns": "DNS" },
-    "status": { "pending": "等待", "up": "在线", "down": "离线", "degraded": "性能下降", "paused": "已暂停" },
-    "incident": { "open": "处理中", "resolved": "已恢复" }
+    "types": {
+      "icmp": "Ping",
+      "tcp": "TCP 端口",
+      "http": "HTTP",
+      "dns": "DNS"
+    },
+    "status": {
+      "pending": "等待",
+      "up": "在线",
+      "down": "离线",
+      "degraded": "性能下降",
+      "paused": "已暂停"
+    },
+    "incident": {
+      "open": "处理中",
+      "resolved": "已恢复"
+    }
   },
   "health": {
     "title": "节点健康",

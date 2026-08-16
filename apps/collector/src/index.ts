@@ -32,7 +32,7 @@ import {
 } from './modules/clickhouse/clickhouse.config.js';
 import { ClickHouseCompareService } from './modules/clickhouse/clickhouse.compare.js';
 import { CleanupService, type CleanupOverrides } from './modules/cleanup/index.js';
-import { VendorCatalogService, VendorIPEnrichmentService } from './modules/vendor/index.js';
+import { VendorAutomationService, VendorCatalogService, VendorIPEnrichmentService } from './modules/vendor/index.js';
 
 const COLLECTOR_WS_PORT = parseInt(process.env.COLLECTOR_WS_PORT || '3002');
 const API_PORT = parseInt(process.env.API_PORT || '3001');
@@ -77,6 +77,7 @@ let clickHouseCompareService: ClickHouseCompareService;
 let cleanupService: CleanupService | undefined;
 let vendorCatalogService: VendorCatalogService | undefined;
 let vendorIPEnrichmentService: VendorIPEnrichmentService | undefined;
+let vendorAutomationService: VendorAutomationService | undefined;
 
 // Track last known backend configs to detect changes
 let lastBackendConfigs: Map<number, BackendConfig> = new Map();
@@ -112,6 +113,7 @@ async function main() {
   policySyncService = new SurgePolicySyncService(db);
   vendorCatalogService = new VendorCatalogService(db);
   vendorIPEnrichmentService = new VendorIPEnrichmentService(db, geoService);
+  vendorAutomationService = new VendorAutomationService(db, vendorIPEnrichmentService);
 
   // Initialize API server
   console.log('[Main] Starting API server on port', API_PORT);
@@ -135,9 +137,12 @@ async function main() {
       wsServer.clearBackendCache(backendId);
       wsServer.broadcastStats(backendId, true);
     },
+    undefined,
+    vendorAutomationService,
   );
   apiServer.start();
   vendorCatalogService.start();
+  vendorAutomationService.start();
 
   // Start backend management loop
   console.log('[Main] Starting backend management loop...');
@@ -321,6 +326,8 @@ async function shutdown() {
   // Stop retention cleanup
   cleanupService?.stop();
   vendorCatalogService?.stop();
+  vendorAutomationService?.stop();
+  vendorIPEnrichmentService?.stop();
 
   // Close database
   db?.close();

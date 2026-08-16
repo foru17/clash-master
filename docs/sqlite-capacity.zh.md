@@ -7,6 +7,7 @@
 - 加上 Neko Master 原有 7 天分钟明细、30 天完整小时明细、累计表、索引和 WAL 后，典型数据库预计 `3–7 GiB`。
 - 建议为在线数据库预留 `20 GiB`；连同一次备份和升级临时空间，建议 QNAP 预留 `30 GiB`。
 - 不建议把 `hourly_dim_stats` 完整明细保留 365 天；高基数域名/IP/终端交叉维度会明显放大体积。
+- v1.1.0 新增的 `vendor_evidence` / `vendor_suggestions` / `vendor_suggestion_actions` / `vendor_automation_state` 是低基数证据与建议表：证据默认缓存 7 天且每轮最多处理 Top 50 域名 + Top 200 IP，预计年增量在数 MiB 级别；应用/忽略动作写入审计行，不会进入高基数事实表。
 
 ## 可复现基准
 

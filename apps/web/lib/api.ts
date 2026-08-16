@@ -13,6 +13,7 @@ import type {
   VendorEndpointStatsResponse,
   VendorAutomationResponse,
   VendorProbeResponse,
+  VendorSuggestion,
   AvailabilityMonitor,
   MonitorHistoryPoint,
   MonitorIncident,
@@ -691,6 +692,31 @@ export const api = {
 
   getVendorAutomation: (backendId: number) =>
     fetchJson<VendorAutomationResponse>(buildUrl(`${API_BASE}/vendors/automation`, { backendId })),
+
+  runVendorAutomation: () =>
+    fetchJson<{
+      backends: number;
+      domainSubjects: number;
+      ipSubjects: number;
+      suggestionsCreated: number;
+      suggestionsUpdated: number;
+      autoApplied: number;
+      autoApplyFailed: number;
+      reclassification: { scannedRows: number; durationMs: number } | null;
+      durationMs: number;
+    }>(`${API_BASE}/vendors/automation/run`, 'POST'),
+
+  getVendorSuggestions: (backendId?: number, status: "pending" | "applied" | "dismissed" | "stale" = "pending") =>
+    fetchJson<VendorSuggestion[]>(buildUrl(`${API_BASE}/vendors/suggestions`, { backendId, status })),
+
+  applyVendorSuggestion: (id: number) =>
+    fetchJson<{
+      applied: { suggestionId: number; vendorId: number; pattern: string; ruleId: number; action: string };
+      reclassification: { scannedRows: number; durationMs: number };
+    }>(`${API_BASE}/vendors/suggestions/${id}/apply`, 'POST'),
+
+  dismissVendorSuggestion: (id: number) =>
+    fetchJson<{ success: boolean; id: number }>(`${API_BASE}/vendors/suggestions/${id}/dismiss`, 'POST'),
 
   probeVendorDomains: (backendId: number, domains: string[]) =>
     fetchJson<VendorProbeResponse>(`${API_BASE}/vendors/probe`, 'POST', { backendId, domains }),

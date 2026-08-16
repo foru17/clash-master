@@ -124,6 +124,92 @@ export interface ObservedIPDomainCandidate {
   share: number;
 }
 
+export interface UnknownDomainSubject {
+  registrableDomain: string;
+  upload: number;
+  download: number;
+  connections: number;
+  devices: number;
+  lastSeen: string;
+}
+
+export interface UnknownIPSubject {
+  endpoint: string;
+  upload: number;
+  download: number;
+  connections: number;
+  devices: number;
+}
+
+export interface VendorEvidenceInput {
+  backendId: number;
+  subjectType: 'domain' | 'ip';
+  subject: string;
+  evidenceType: 'dns' | 'cname' | 'http' | 'rdap' | 'ptr' | 'observed' | 'asn';
+  evidenceJson: string;
+  trafficBytes: number;
+  devices: number;
+  ttlHours: number;
+}
+
+export interface VendorSuggestionInput {
+  backendId: number;
+  subjectType: 'domain' | 'ip';
+  subject: string;
+  suggestedVendorId: number;
+  confidence: 'high' | 'medium';
+  score: number;
+  reasons: string[];
+  trafficBytes: number;
+  devices: number;
+}
+
+export interface VendorSuggestionRecord {
+  id: number;
+  backendId: number;
+  subjectType: 'domain' | 'ip';
+  subject: string;
+  suggestedVendorId: number;
+  suggestedVendorName: string;
+  suggestedVendorSlug: string;
+  suggestedVendorColor: string;
+  confidence: 'high' | 'medium';
+  score: number;
+  reasons: string[];
+  status: 'pending' | 'applied' | 'dismissed' | 'stale';
+  trafficBytes: number;
+  devices: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+export interface ApplySuggestionResult {
+  suggestionId: number;
+  vendorId: number;
+  pattern: string;
+  ruleId: number;
+  action: 'apply' | 'auto_apply';
+}
+
+export interface SnifferImpactData {
+  totalTraffic: number;
+  unknownIPTraffic: number;
+  potentiallyRecoverableTraffic: number;
+  protocols: string[];
+}
+
+export interface BuiltinVendorRuleSpec {
+  vendorSlug: string;
+  vendorName: string;
+  vendorColor?: string;
+  vendorPriority?: number;
+  patterns: Array<{
+    pattern: string;
+    matchType?: 'exact' | 'suffix';
+    priority?: number;
+  }>;
+}
+
 function mapTotal(row: VendorAggregateRow): VendorTrafficTotal {
   return {
     vendorId: row.vendor_id,
@@ -782,6 +868,647 @@ export class VendorRepository extends BaseRepository {
       devices: row.devices,
       lastSeen: row.last_seen,
     }));
+  }
+
+  getTopUnknownDomainSubjects(
+    backendId: number,
+    days = 30,
+    limit = 50,
+    minTrafficBytes = 1_048_576,
+  ): UnknownDomainSubject[] {
+    const safeDays = Math.max(1, Math.min(365, Math.floor(days)));
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    const cutoff = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    return this.db.prepare(`
+      SELECT registrable_domain AS registrableDomain,
+             SUM(upload) AS upload,
+             SUM(download) AS download,
+             SUM(connections) AS connections,
+             COUNT(DISTINCT NULLIF(source_ip, '')) AS devices,
+             MAX(day) AS lastSeen
+      FROM unresolved_domain_daily_stats
+      WHERE backend_id = ? AND day >= ? AND registrable_domain <> ''
+      GROUP BY registrable_domain
+      HAVING SUM(upload + download) >= ?
+      ORDER BY SUM(upload + download) DESC
+      LIMIT ?
+    `).all(backendId, cutoff, Math.max(0, minTrafficBytes), safeLimit) as UnknownDomainSubject[];
+  }
+
+  getTopUnknownIPSubjects(
+    backendId: number,
+    days = 7,
+    limit = 200,
+  ): UnknownIPSubject[] {
+    const safeDays = Math.max(1, Math.min(365, Math.floor(days)));
+    const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit)));
+    const cutoff = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 13) + ':00:00';
+    return this.db.prepare(`
+      SELECT s.endpoint,
+             SUM(s.upload) AS upload,
+             SUM(s.download) AS download,
+             SUM(s.connections) AS connections,
+             COUNT(DISTINCT NULLIF(s.source_ip, '')) AS devices
+      FROM vendor_endpoint_hourly_stats s
+      JOIN vendors v ON v.id = s.vendor_id
+      WHERE s.backend_id = ?
+        AND v.slug = 'unknown'
+        AND s.endpoint_type = 'ip'
+        AND s.hour >= ?
+        AND s.endpoint <> ''
+      GROUP BY s.endpoint
+      ORDER BY SUM(s.upload + s.download) DESC
+      LIMIT ?
+    `).all(backendId, cutoff, safeLimit) as UnknownIPSubject[];
+  }
+
+  getLatestEvidenceAt(
+    backendId: number,
+    subjectType: 'domain' | 'ip',
+    subject: string,
+  ): string | null {
+    const row = this.db.prepare(`
+      SELECT MAX(collected_at) AS collected_at
+      FROM vendor_evidence
+      WHERE backend_id = ? AND subject_type = ? AND subject = ?
+    `).get(backendId, subjectType, subject) as { collected_at: string | null } | undefined;
+    return row?.collected_at ?? null;
+  }
+
+  getFreshEvidenceCounts(backendId?: number): { domainCount: number; ipCount: number } {
+    const backendFilter = backendId === undefined ? '' : 'AND backend_id = ?';
+    const params = backendId === undefined ? [] : [backendId];
+    const row = this.db.prepare(`
+      SELECT
+        COALESCE(SUM(CASE WHEN subject_type = 'domain' THEN 1 ELSE 0 END), 0) AS domain_count,
+        COALESCE(SUM(CASE WHEN subject_type = 'ip' THEN 1 ELSE 0 END), 0) AS ip_count
+      FROM vendor_evidence
+      WHERE expires_at > CURRENT_TIMESTAMP ${backendFilter}
+    `).get(...params) as { domain_count: number; ip_count: number };
+    return { domainCount: row.domain_count, ipCount: row.ip_count };
+  }
+
+  saveEvidence(input: VendorEvidenceInput): void {
+    const collectedAt = new Date();
+    const expiresAt = new Date(collectedAt.getTime() + input.ttlHours * 60 * 60 * 1000);
+    this.db.prepare(`
+      INSERT INTO vendor_evidence
+        (backend_id, subject_type, subject, evidence_type, evidence_json,
+         traffic_bytes, devices, collected_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(backend_id, subject_type, subject, evidence_type) DO UPDATE SET
+        evidence_json = excluded.evidence_json,
+        traffic_bytes = excluded.traffic_bytes,
+        devices = excluded.devices,
+        collected_at = excluded.collected_at,
+        expires_at = excluded.expires_at
+    `).run(
+      input.backendId,
+      input.subjectType,
+      input.subject,
+      input.evidenceType,
+      input.evidenceJson,
+      input.trafficBytes,
+      input.devices,
+      collectedAt.toISOString(),
+      expiresAt.toISOString(),
+    );
+  }
+
+  pruneExpiredEvidence(now = new Date().toISOString()): number {
+    return this.db.prepare(
+      `DELETE FROM vendor_evidence WHERE expires_at < ?`,
+    ).run(now).changes;
+  }
+
+  upsertSuggestion(input: VendorSuggestionInput): {
+    id: number;
+    created: boolean;
+    replacedVendorId: number | null;
+  } {
+    const now = new Date().toISOString();
+    const reasonsJson = JSON.stringify(input.reasons.slice(0, 10));
+    const upsert = this.db.transaction(() => {
+      const pending = this.db.prepare(`
+        SELECT id, suggested_vendor_id, score
+        FROM vendor_suggestions
+        WHERE backend_id = ? AND subject_type = ? AND subject = ? AND status = 'pending'
+        LIMIT 1
+      `).get(input.backendId, input.subjectType, input.subject) as
+        | { id: number; suggested_vendor_id: number; score: number }
+        | undefined;
+
+      if (pending) {
+        let replacedVendorId: number | null = null;
+        if (pending.suggested_vendor_id !== input.suggestedVendorId) {
+          if (input.score < pending.score + 10) {
+            this.db.prepare(`
+              UPDATE vendor_suggestions
+              SET traffic_bytes = ?, devices = ?, last_seen_at = ?
+              WHERE id = ?
+            `).run(input.trafficBytes, input.devices, now, pending.id);
+            return { id: pending.id, created: false, replacedVendorId: null };
+          }
+          replacedVendorId = pending.suggested_vendor_id;
+        }
+        this.db.prepare(`
+          UPDATE vendor_suggestions
+          SET suggested_vendor_id = ?, confidence = ?, score = ?,
+              reasons_json = ?, traffic_bytes = ?, devices = ?, last_seen_at = ?
+          WHERE id = ?
+        `).run(
+          input.suggestedVendorId,
+          input.confidence,
+          input.score,
+          reasonsJson,
+          input.trafficBytes,
+          input.devices,
+          now,
+          pending.id,
+        );
+        this.db.prepare(`
+          INSERT INTO vendor_suggestion_actions (suggestion_id, action, detail_json)
+          VALUES (?, 'refresh', ?)
+        `).run(pending.id, JSON.stringify({
+          previousVendorId: replacedVendorId,
+          suggestedVendorId: input.suggestedVendorId,
+          score: input.score,
+        }));
+        return { id: pending.id, created: false, replacedVendorId };
+      }
+
+      const recent = this.db.prepare(`
+        SELECT id, status, last_seen_at
+        FROM vendor_suggestions
+        WHERE backend_id = ? AND subject_type = ? AND subject = ?
+        ORDER BY last_seen_at DESC
+        LIMIT 1
+      `).get(input.backendId, input.subjectType, input.subject) as
+        | { id: number; status: 'pending' | 'applied' | 'dismissed' | 'stale'; last_seen_at: string }
+        | undefined;
+      if (recent?.status === 'applied') {
+        return { id: recent.id, created: false, replacedVendorId: null };
+      }
+      if (recent?.status === 'dismissed') {
+        const dismissedAt = Date.parse(recent.last_seen_at);
+        if (Number.isFinite(dismissedAt) && Date.now() - dismissedAt < 30 * 24 * 60 * 60 * 1000) {
+          return { id: recent.id, created: false, replacedVendorId: null };
+        }
+      }
+
+      const result = this.db.prepare(`
+        INSERT INTO vendor_suggestions
+          (backend_id, subject_type, subject, suggested_vendor_id, confidence, score,
+           reasons_json, status, traffic_bytes, devices, first_seen_at, last_seen_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+      `).run(
+        input.backendId,
+        input.subjectType,
+        input.subject,
+        input.suggestedVendorId,
+        input.confidence,
+        input.score,
+        reasonsJson,
+        input.trafficBytes,
+        input.devices,
+        now,
+        now,
+      );
+      const id = Number(result.lastInsertRowid);
+      this.db.prepare(`
+        INSERT INTO vendor_suggestion_actions (suggestion_id, action, detail_json)
+        VALUES (?, 'refresh', ?)
+      `).run(id, JSON.stringify({ score: input.score, confidence: input.confidence }));
+      return { id, created: true, replacedVendorId: null };
+    });
+    return upsert();
+  }
+
+  getSuggestions(
+    backendId?: number,
+    status: 'pending' | 'applied' | 'dismissed' | 'stale' = 'pending',
+    limit = 100,
+  ): VendorSuggestionRecord[] {
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    const conditions: string[] = ['s.status = @status'];
+    const params: Record<string, number | string> = { status, limit: safeLimit };
+    if (backendId !== undefined) {
+      conditions.push('s.backend_id = @backendId');
+      params.backendId = backendId;
+    }
+    const rows = this.db.prepare(`
+      SELECT s.id, s.backend_id, s.subject_type, s.subject,
+             s.suggested_vendor_id, s.confidence, s.score, s.reasons_json,
+             s.status, s.traffic_bytes, s.devices, s.first_seen_at, s.last_seen_at,
+             v.name AS vendor_name, v.slug AS vendor_slug, v.color AS vendor_color
+      FROM vendor_suggestions s
+      JOIN vendors v ON v.id = s.suggested_vendor_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY s.traffic_bytes DESC, s.score DESC
+      LIMIT @limit
+    `).all(params) as Array<{
+      id: number;
+      backend_id: number;
+      subject_type: 'domain' | 'ip';
+      subject: string;
+      suggested_vendor_id: number;
+      confidence: 'high' | 'medium';
+      score: number;
+      reasons_json: string;
+      status: 'pending' | 'applied' | 'dismissed' | 'stale';
+      traffic_bytes: number;
+      devices: number;
+      first_seen_at: string;
+      last_seen_at: string;
+      vendor_name: string;
+      vendor_slug: string;
+      vendor_color: string;
+    }>;
+    return rows.map((row) => {
+      let reasons: string[] = [];
+      try {
+        const parsed = JSON.parse(row.reasons_json) as unknown;
+        if (Array.isArray(parsed)) reasons = parsed.filter((value): value is string => typeof value === 'string');
+      } catch {
+        reasons = [];
+      }
+      return {
+        id: row.id,
+        backendId: row.backend_id,
+        subjectType: row.subject_type,
+        subject: row.subject,
+        suggestedVendorId: row.suggested_vendor_id,
+        suggestedVendorName: row.vendor_name,
+        suggestedVendorSlug: row.vendor_slug,
+        suggestedVendorColor: row.vendor_color,
+        confidence: row.confidence,
+        score: row.score,
+        reasons,
+        status: row.status,
+        trafficBytes: row.traffic_bytes,
+        devices: row.devices,
+        firstSeenAt: row.first_seen_at,
+        lastSeenAt: row.last_seen_at,
+      };
+    });
+  }
+
+  countSuggestionsByStatus(
+    status: 'pending' | 'applied' | 'dismissed' | 'stale',
+    backendId?: number,
+  ): number {
+    const backendFilter = backendId === undefined ? '' : 'AND backend_id = ?';
+    const params = backendId === undefined ? [status] : [status, backendId];
+    const row = this.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM vendor_suggestions
+      WHERE status = ? ${backendFilter}
+    `).get(...params) as { count: number };
+    return row.count;
+  }
+
+  getPendingSuggestionForSubject(
+    backendId: number,
+    subjectType: 'domain' | 'ip',
+    subject: string,
+  ): VendorSuggestionRecord | null {
+    const row = this.db.prepare(`
+      SELECT id
+      FROM vendor_suggestions
+      WHERE backend_id = ? AND subject_type = ? AND subject = ? AND status = 'pending'
+      LIMIT 1
+    `).get(backendId, subjectType, subject) as { id: number } | undefined;
+    if (!row) return null;
+    return this.getSuggestions(backendId, 'pending', 500)
+      .find((suggestion) => suggestion.id === row.id) ?? null;
+  }
+
+  dismissSuggestion(id: number): boolean {
+    const now = new Date().toISOString();
+    const apply = this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE vendor_suggestions
+        SET status = 'dismissed', resolved_at = ?
+        WHERE id = ? AND status = 'pending'
+      `).run(now, id);
+      if (result.changes === 0) return false;
+      this.db.prepare(`
+        INSERT INTO vendor_suggestion_actions (suggestion_id, action)
+        VALUES (?, 'dismiss')
+      `).run(id);
+      return true;
+    });
+    return apply();
+  }
+
+  markSuggestionStaleForSubject(
+    backendId: number,
+    subjectType: 'domain' | 'ip',
+    subject: string,
+  ): void {
+    const now = new Date().toISOString();
+    const apply = this.db.transaction(() => {
+      const row = this.db.prepare(`
+        SELECT id
+        FROM vendor_suggestions
+        WHERE backend_id = ? AND subject_type = ? AND subject = ? AND status = 'pending'
+        LIMIT 1
+      `).get(backendId, subjectType, subject) as { id: number } | undefined;
+      if (!row) return;
+      this.db.prepare(`
+        UPDATE vendor_suggestions
+        SET status = 'stale', resolved_at = ?
+        WHERE id = ?
+      `).run(now, row.id);
+      this.db.prepare(`
+        INSERT INTO vendor_suggestion_actions (suggestion_id, action)
+        VALUES (?, 'stale')
+      `).run(row.id);
+    });
+    apply();
+  }
+
+  applySuggestionAsManualRule(
+    id: number,
+    action: 'apply' | 'auto_apply' = 'apply',
+  ): ApplySuggestionResult {
+    const now = new Date().toISOString();
+    const apply = this.db.transaction(() => {
+      const row = this.db.prepare(`
+        SELECT s.id, s.backend_id, s.subject_type, s.subject, s.suggested_vendor_id
+        FROM vendor_suggestions s
+        WHERE s.id = ? AND s.status = 'pending'
+        LIMIT 1
+      `).get(id) as {
+        id: number;
+        backend_id: number;
+        subject_type: 'domain' | 'ip';
+        subject: string;
+        suggested_vendor_id: number;
+      } | undefined;
+      if (!row) throw new Error('Suggestion is no longer pending');
+      if (row.subject_type !== 'domain') {
+        throw new Error('Only domain suggestions can be applied as vendor rules');
+      }
+      const pattern = normalizeDomain(row.subject);
+      if (!pattern) throw new Error('Suggestion subject is not a valid domain');
+
+      const conflict = this.db.prepare(`
+        SELECT v.name
+        FROM vendor_domain_rules r
+        JOIN vendors v ON v.id = r.vendor_id
+        WHERE r.source = 'manual' AND r.vendor_id <> ?
+          AND r.pattern = ? AND r.match_type = 'suffix'
+        LIMIT 1
+      `).get(row.suggested_vendor_id, pattern) as { name: string } | undefined;
+      if (conflict) {
+        throw new Error(`Manual rule ${pattern} already belongs to ${conflict.name}`);
+      }
+
+      this.db.prepare(`
+        INSERT INTO vendor_domain_rules
+          (vendor_id, pattern, match_type, priority, source, source_key, source_revision, confidence)
+        VALUES (?, ?, 'suffix', 100, 'manual', NULL, NULL, 'high')
+        ON CONFLICT(vendor_id, pattern, match_type) DO UPDATE SET
+          priority = 100,
+          source = 'manual',
+          source_key = NULL,
+          source_revision = NULL,
+          confidence = 'high'
+      `).run(row.suggested_vendor_id, pattern);
+      const rule = this.db.prepare(`
+        SELECT id
+        FROM vendor_domain_rules
+        WHERE vendor_id = ? AND pattern = ? AND match_type = 'suffix'
+        LIMIT 1
+      `).get(row.suggested_vendor_id, pattern) as { id: number } | undefined;
+      if (!rule) throw new Error('Failed to persist vendor rule');
+
+      this.db.prepare(`
+        UPDATE vendor_suggestions
+        SET status = 'applied', resolved_at = ?, resolved_rule_id = ?
+        WHERE id = ?
+      `).run(now, rule.id, row.id);
+      this.db.prepare(`
+        INSERT INTO vendor_suggestion_actions (suggestion_id, action, detail_json)
+        VALUES (?, ?, ?)
+      `).run(row.id, action, JSON.stringify({ ruleId: rule.id, pattern }));
+      return {
+        suggestionId: row.id,
+        vendorId: row.suggested_vendor_id,
+        pattern,
+        ruleId: rule.id,
+        action,
+      };
+    });
+    return apply();
+  }
+
+  getAutomationState(): {
+    status: 'idle' | 'running' | 'success' | 'failed' | 'disabled';
+    lastRunAt: string | null;
+    lastSuccessAt: string | null;
+    nextRunAt: string | null;
+    lastRunDurationMs: number | null;
+    lastError: string | null;
+  } {
+    const row = this.db.prepare(`
+      SELECT status, last_run_at, last_success_at, next_run_at,
+             last_run_duration_ms, last_error
+      FROM vendor_automation_state
+      WHERE id = 1
+    `).get() as {
+      status: 'idle' | 'running' | 'success' | 'failed' | 'disabled';
+      last_run_at: string | null;
+      last_success_at: string | null;
+      next_run_at: string | null;
+      last_run_duration_ms: number | null;
+      last_error: string | null;
+    } | undefined;
+    if (!row) {
+      return {
+        status: 'idle',
+        lastRunAt: null,
+        lastSuccessAt: null,
+        nextRunAt: null,
+        lastRunDurationMs: null,
+        lastError: null,
+      };
+    }
+    return {
+      status: row.status,
+      lastRunAt: row.last_run_at,
+      lastSuccessAt: row.last_success_at,
+      nextRunAt: row.next_run_at,
+      lastRunDurationMs: row.last_run_duration_ms,
+      lastError: row.last_error,
+    };
+  }
+
+  markAutomationDisabled(): void {
+    this.db.prepare(`
+      INSERT INTO vendor_automation_state
+        (id, status, next_run_at)
+      VALUES (1, 'disabled', NULL)
+      ON CONFLICT(id) DO UPDATE SET
+        status = 'disabled', next_run_at = NULL
+    `).run();
+  }
+
+  markAutomationRunStart(nextRunAt: string | null): void {
+    this.db.prepare(`
+      INSERT INTO vendor_automation_state
+        (id, status, last_run_at, last_error, next_run_at)
+      VALUES (1, 'running', ?, NULL, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = 'running', last_run_at = excluded.last_run_at,
+        last_error = NULL, next_run_at = excluded.next_run_at
+    `).run(new Date().toISOString(), nextRunAt);
+  }
+
+  markAutomationRunFinished(
+    status: 'success' | 'failed',
+    durationMs: number,
+    error: string | null,
+    nextRunAt: string | null,
+  ): void {
+    this.db.prepare(`
+      INSERT INTO vendor_automation_state
+        (id, status, last_run_at, last_success_at, next_run_at,
+         last_run_duration_ms, last_error)
+      VALUES (1, ?, CURRENT_TIMESTAMP, CASE WHEN ? = 'success' THEN CURRENT_TIMESTAMP ELSE NULL END, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        last_run_at = CURRENT_TIMESTAMP,
+        last_success_at = CASE WHEN excluded.status = 'success' THEN CURRENT_TIMESTAMP ELSE vendor_automation_state.last_success_at END,
+        next_run_at = excluded.next_run_at,
+        last_run_duration_ms = excluded.last_run_duration_ms,
+        last_error = excluded.last_error
+    `).run(status, status, nextRunAt, durationMs, error?.slice(0, 1000) ?? null);
+  }
+
+  getSnifferImpact(backendId: number, days = 7): SnifferImpactData {
+    const safeDays = Math.max(1, Math.min(90, Math.floor(days)));
+    const cutoff = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 13) + ':00:00';
+    const total = this.db.prepare(`
+      SELECT COALESCE(SUM(upload + download), 0) AS total
+      FROM traffic_observability_hourly_stats
+      WHERE backend_id = ? AND hour >= ?
+    `).get(backendId, cutoff) as { total: number };
+    const unknownIP = this.db.prepare(`
+      SELECT COALESCE(SUM(s.upload + s.download), 0) AS total
+      FROM vendor_endpoint_hourly_stats s
+      JOIN vendors v ON v.id = s.vendor_id
+      WHERE s.backend_id = ? AND s.hour >= ?
+        AND v.slug = 'unknown' AND s.endpoint_type = 'ip'
+    `).get(backendId, cutoff) as { total: number };
+    const recoverableRows = this.db.prepare(`
+      SELECT s.application_protocol,
+             COALESCE(SUM(s.upload + s.download), 0) AS total
+      FROM vendor_endpoint_hourly_stats s
+      JOIN vendors v ON v.id = s.vendor_id
+      WHERE s.backend_id = ? AND s.hour >= ?
+        AND v.slug = 'unknown' AND s.endpoint_type = 'ip'
+        AND s.application_protocol IN ('tls', 'http', 'quic')
+      GROUP BY s.application_protocol
+      ORDER BY total DESC
+    `).all(backendId, cutoff) as Array<{ application_protocol: string; total: number }>;
+    return {
+      totalTraffic: total.total,
+      unknownIPTraffic: unknownIP.total,
+      potentiallyRecoverableTraffic: recoverableRows.reduce((sum, row) => sum + row.total, 0),
+      protocols: recoverableRows
+        .filter((row) => row.total > 0)
+        .map((row) => row.application_protocol),
+    };
+  }
+
+  applyBuiltinRulePack(
+    version: string,
+    specs: BuiltinVendorRuleSpec[],
+  ): { inserted: number; skipped: number } {
+    const apply = this.db.transaction(() => {
+      const vendors = this.db.prepare(`
+        SELECT id, slug, name, enabled
+        FROM vendors
+      `).all() as Array<{ id: number; slug: string; name: string; enabled: number }>;
+      const bySlug = new Map(vendors.map((vendor) => [vendor.slug.toLowerCase(), vendor]));
+      const byName = new Map(vendors.map((vendor) => [vendor.name.trim().toLowerCase(), vendor]));
+      const findOrCreateVendor = (spec: BuiltinVendorRuleSpec) => {
+        const existing = bySlug.get(spec.vendorSlug.toLowerCase())
+          ?? byName.get(spec.vendorName.trim().toLowerCase());
+        if (existing) return existing;
+        const result = this.db.prepare(`
+          INSERT INTO vendors (slug, name, color, priority, enabled)
+          VALUES (?, ?, ?, ?, 1)
+          ON CONFLICT(slug) DO NOTHING
+        `).run(
+          spec.vendorSlug,
+          spec.vendorName,
+          spec.vendorColor ?? '#64748b',
+          spec.vendorPriority ?? 100,
+        );
+        if (result.changes > 0) {
+          const created = {
+            id: Number(result.lastInsertRowid),
+            slug: spec.vendorSlug,
+            name: spec.vendorName,
+            enabled: 1,
+          };
+          bySlug.set(spec.vendorSlug.toLowerCase(), created);
+          byName.set(spec.vendorName.trim().toLowerCase(), created);
+          return created;
+        }
+        return bySlug.get(spec.vendorSlug.toLowerCase()) ?? null;
+      };
+
+      let inserted = 0;
+      let skipped = 0;
+      const insertRule = this.db.prepare(`
+        INSERT OR IGNORE INTO vendor_domain_rules
+          (vendor_id, pattern, match_type, priority, source, source_key, source_revision, confidence)
+        VALUES (?, ?, ?, ?, 'builtin', 'home-automation-pack', ?, 'high')
+      `);
+      for (const spec of specs) {
+        const vendor = findOrCreateVendor(spec);
+        if (!vendor || vendor.enabled !== 1) {
+          skipped += spec.patterns.length;
+          continue;
+        }
+        for (const rawRule of spec.patterns) {
+          const pattern = normalizeDomain(rawRule.pattern);
+          const matchType = rawRule.matchType ?? 'suffix';
+          if (!pattern) {
+            skipped += 1;
+            continue;
+          }
+          const conflict = this.db.prepare(`
+            SELECT v.name
+            FROM vendor_domain_rules r
+            JOIN vendors v ON v.id = r.vendor_id
+            WHERE r.source = 'manual' AND r.vendor_id <> ?
+              AND r.pattern = ? AND r.match_type = ?
+            LIMIT 1
+          `).get(vendor.id, pattern, matchType) as { name: string } | undefined;
+          if (conflict) {
+            skipped += 1;
+            continue;
+          }
+          inserted += insertRule.run(
+            vendor.id,
+            pattern,
+            matchType,
+            rawRule.priority ?? 100,
+            version,
+          ).changes;
+        }
+      }
+      return { inserted, skipped };
+    });
+    return apply();
   }
 
   reclassifyRecentHistory(days = 30): ReclassificationResult {

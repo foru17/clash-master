@@ -253,10 +253,52 @@ export interface GatewaySnifferStatus {
   message: string;
 }
 
+export interface VendorSuggestion {
+  id: number;
+  backendId: number;
+  subjectType: "domain" | "ip";
+  subject: string;
+  suggestedVendorId: number;
+  suggestedVendorName: string;
+  suggestedVendorSlug: string;
+  suggestedVendorColor: string;
+  confidence: "high" | "medium";
+  score: number;
+  reasons: string[];
+  status: "pending" | "applied" | "dismissed" | "stale";
+  trafficBytes: number;
+  devices: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+export interface VendorEvidenceStats {
+  lastRunStatus: "idle" | "running" | "success" | "failed" | "disabled";
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  nextRunAt: string | null;
+  lastRunDurationMs: number | null;
+  lastError: string | null;
+  collectedDomainCount: number;
+  collectedIPCount: number;
+  pendingSuggestionCount: number;
+}
+
+export interface SnifferImpact {
+  totalTraffic: number;
+  unknownIPTraffic: number;
+  potentiallyRecoverableTraffic: number;
+  potentialRate: number;
+  protocols: string[];
+}
+
 export interface VendorAutomationResponse {
   catalog: VendorCatalogState;
   unknownCandidates: UnknownVendorCandidate[];
   sniffer: GatewaySnifferStatus;
+  suggestions?: VendorSuggestion[];
+  evidenceStats?: VendorEvidenceStats;
+  snifferImpact?: SnifferImpact;
 }
 
 export interface VendorStatsResponse {

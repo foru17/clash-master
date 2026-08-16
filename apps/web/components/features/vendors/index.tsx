@@ -10,10 +10,13 @@ import {
 } from "@tanstack/react-query";
 import {
   Building2,
+  Check,
   ChevronDown,
   ChevronRight,
   DatabaseZap,
+  EyeOff,
   Pencil,
+  Play,
   Plus,
   RefreshCw,
   Search,
@@ -125,6 +128,40 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
         queryClient.invalidateQueries({ queryKey: ["stats", "vendors"] }),
       ]);
     },
+  });
+  const runAutomationMutation = useMutation({
+    mutationFn: api.runVendorAutomation,
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["vendors"] }),
+        queryClient.invalidateQueries({ queryKey: ["stats", "vendors"] }),
+      ]);
+      toast.success(t("automationRunFinished", {
+        domains: result.domainSubjects,
+        suggestions: result.suggestionsCreated,
+        autoApplied: result.autoApplied,
+      }));
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : t("automationRunFailed")),
+  });
+  const applySuggestionMutation = useMutation({
+    mutationFn: (id: number) => api.applyVendorSuggestion(id),
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["vendors"] }),
+        queryClient.invalidateQueries({ queryKey: ["stats", "vendors"] }),
+      ]);
+      toast.success(t("suggestionApplied", { rows: result.reclassification.scannedRows }));
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : t("suggestionApplyFailed")),
+  });
+  const dismissSuggestionMutation = useMutation({
+    mutationFn: (id: number) => api.dismissVendorSuggestion(id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["vendors"] });
+      await queryClient.invalidateQueries({ queryKey: ["stats", "vendors"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : t("suggestionDismissFailed")),
   });
   const probeMutation = useMutation({
     mutationFn: (domain: string) => api.probeVendorDomains(activeBackendId!, [domain]),
@@ -503,15 +540,26 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
                 <CardTitle className="text-base flex items-center gap-2"><DatabaseZap className="w-4 h-4" />{t("automation")}</CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">{automationQuery.data?.sniffer.message ?? t("automationLoading")}</p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={syncMutation.isPending}
-                onClick={() => syncMutation.mutate()}
-              >
-                <RefreshCw className={`w-4 h-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-                {t("syncCatalog")}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={runAutomationMutation.isPending}
+                  onClick={() => runAutomationMutation.mutate()}
+                >
+                  <Play className={`w-4 h-4 mr-2 ${runAutomationMutation.isPending ? "animate-spin" : ""}`} />
+                  {t("runAutomation")}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={syncMutation.isPending}
+                  onClick={() => syncMutation.mutate()}
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+                  {t("syncCatalog")}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid sm:grid-cols-3 gap-3 text-sm">
@@ -521,6 +569,78 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
               </div>
               {syncMutation.isError && <p className="text-sm text-destructive">{t("syncError")}</p>}
               {automationQuery.data?.catalog.error && <p className="text-sm text-destructive">{automationQuery.data.catalog.error}</p>}
+              {automationQuery.data?.snifferImpact && (
+                <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                  <p className="font-medium">{t("snifferImpactTitle")}</p>
+                  <p className="mt-1 text-muted-foreground">
+                    {t("snifferImpactText", {
+                      unknown: formatBytes(automationQuery.data.snifferImpact.unknownIPTraffic),
+                      total: formatBytes(automationQuery.data.snifferImpact.totalTraffic),
+                      rate: ((automationQuery.data.snifferImpact.potentialRate ?? 0) * 100).toFixed(1),
+                      protocols: automationQuery.data.snifferImpact.protocols.join(", ") || "—",
+                    })}
+                  </p>
+                </div>
+              )}
+              {!!automationQuery.data?.suggestions?.length && (
+                <div>
+                  <p className="text-sm font-medium mb-2">{t("vendorSuggestions")}</p>
+                  <p className="mb-3 text-xs text-muted-foreground">{t("vendorSuggestionsHint")}</p>
+                  <Table>
+                    <TableHeader><TableRow>
+                      <TableHead>{t("domain")}</TableHead>
+                      <TableHead>{t("suggestedVendor")}</TableHead>
+                      <TableHead>{t("confidence")}</TableHead>
+                      <TableHead className="text-right">{t("traffic")}</TableHead>
+                      <TableHead className="text-right">{t("actions")}</TableHead>
+                    </TableRow></TableHeader>
+                    <TableBody>
+                      {automationQuery.data.suggestions.map((suggestion) => (
+                        <TableRow key={suggestion.id}>
+                          <TableCell className="font-mono text-xs">
+                            <div>{suggestion.subject}</div>
+                            {suggestion.reasons.length > 0 && (
+                              <div className="mt-1 max-w-[320px] truncate text-muted-foreground">
+                                {suggestion.reasons.slice(0, 3).join(" · ")}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-2">
+                              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: suggestion.suggestedVendorColor }} />
+                              {suggestion.suggestedVendorName}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span className={suggestion.confidence === "high" ? "text-emerald-600" : "text-amber-600"}>
+                              {t(`suggestionConfidence.${suggestion.confidence}`)} · {suggestion.score}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">{formatBytes(suggestion.trafficBytes)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={applySuggestionMutation.isPending}
+                              onClick={() => applySuggestionMutation.mutate(suggestion.id)}
+                            >
+                              <Check className="mr-1 h-3.5 w-3.5" />{t("applySuggestion")}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={dismissSuggestionMutation.isPending}
+                              onClick={() => dismissSuggestionMutation.mutate(suggestion.id)}
+                            >
+                              <EyeOff className="mr-1 h-3.5 w-3.5" />{t("dismissSuggestion")}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
               {!!automationQuery.data?.unknownCandidates.length && (
                 <div>
                   <p className="text-sm font-medium mb-2">{t("unknownCandidates")}</p>

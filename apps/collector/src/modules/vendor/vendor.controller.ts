@@ -40,12 +40,81 @@ export const vendorController: FastifyPluginAsync = async (
       return reply.status(400).send({ error: 'A valid backendId is required' });
     }
     try {
-      return await fastify.vendorCatalogService.getAutomation(backendId);
+      const catalog = await fastify.vendorCatalogService.getAutomation(backendId);
+      const snifferImpact = fastify.db.repos.vendor.getSnifferImpact(backendId, 7);
+      const suggestions = fastify.vendorAutomationService.getSuggestions(backendId, 'pending', 50);
+      return {
+        ...catalog,
+        suggestions,
+        evidenceStats: fastify.vendorAutomationService.getEvidenceStats(backendId),
+        snifferImpact: {
+          ...snifferImpact,
+          potentialRate: snifferImpact.totalTraffic > 0
+            ? snifferImpact.potentiallyRecoverableTraffic / snifferImpact.totalTraffic
+            : 0,
+        },
+      };
     } catch (error) {
       return reply.status(502).send({
         error: error instanceof Error ? error.message : 'Unable to load vendor automation status',
       });
     }
+  });
+
+  fastify.post('/automation/run', async (_request, reply) => {
+    if (fastify.authService.isShowcaseMode()) {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+    try {
+      return await fastify.vendorAutomationService.runNow();
+    } catch (error) {
+      return reply.status(502).send({
+        error: error instanceof Error ? error.message : 'Unable to run vendor automation',
+      });
+    }
+  });
+
+  fastify.get('/suggestions', async (request, reply) => {
+    const query = request.query as { backendId?: string; status?: string; limit?: string };
+    const backendId = parseId(query.backendId);
+    if (backendId && !fastify.db.getBackend(backendId)) {
+      return reply.status(400).send({ error: 'A valid backendId is required' });
+    }
+    const status = query.status === 'applied' || query.status === 'dismissed' || query.status === 'stale'
+      ? query.status
+      : 'pending';
+    const limit = Number.parseInt(query.limit || '100', 10);
+    return fastify.vendorAutomationService.getSuggestions(
+      backendId ?? undefined,
+      status,
+      Number.isFinite(limit) ? limit : 100,
+    );
+  });
+
+  fastify.post('/suggestions/:id/apply', async (request, reply) => {
+    if (fastify.authService.isShowcaseMode()) {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+    const id = parseId((request.params as { id?: string }).id);
+    if (!id) return reply.status(400).send({ error: 'Invalid suggestion id' });
+    try {
+      return fastify.vendorAutomationService.applySuggestion(id);
+    } catch (error) {
+      return reply.status(409).send({
+        error: error instanceof Error ? error.message : 'Unable to apply vendor suggestion',
+      });
+    }
+  });
+
+  fastify.post('/suggestions/:id/dismiss', async (request, reply) => {
+    if (fastify.authService.isShowcaseMode()) {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+    const id = parseId((request.params as { id?: string }).id);
+    if (!id) return reply.status(400).send({ error: 'Invalid suggestion id' });
+    const dismissed = fastify.vendorAutomationService.dismissSuggestion(id);
+    if (!dismissed) return reply.status(404).send({ error: 'Pending suggestion not found' });
+    return { success: true, id };
   });
 
   fastify.post('/probe', async (request, reply) => {

@@ -667,6 +667,76 @@ export const SCHEMA = {
     );
   `,
 
+  // Vendor automation evidence cache. Each row is one probe signal for an
+  // Unknown domain or IP observed in the local network.
+  VENDOR_EVIDENCE: `
+    CREATE TABLE IF NOT EXISTS vendor_evidence (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      backend_id INTEGER NOT NULL,
+      subject_type TEXT NOT NULL CHECK (subject_type IN ('domain', 'ip')),
+      subject TEXT NOT NULL,
+      evidence_type TEXT NOT NULL CHECK (evidence_type IN ('dns', 'cname', 'http', 'rdap', 'ptr', 'observed', 'asn')),
+      evidence_json TEXT NOT NULL,
+      traffic_bytes INTEGER NOT NULL DEFAULT 0,
+      devices INTEGER NOT NULL DEFAULT 0,
+      collected_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      UNIQUE(backend_id, subject_type, subject, evidence_type),
+      FOREIGN KEY (backend_id) REFERENCES backend_configs(id) ON DELETE CASCADE
+    );
+  `,
+
+  // Machine-generated vendor suggestions. The default automation policy only
+  // auto-applies high-confidence suggestions when explicitly enabled.
+  VENDOR_SUGGESTIONS: `
+    CREATE TABLE IF NOT EXISTS vendor_suggestions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      backend_id INTEGER NOT NULL,
+      subject_type TEXT NOT NULL CHECK (subject_type IN ('domain', 'ip')),
+      subject TEXT NOT NULL,
+      suggested_vendor_id INTEGER NOT NULL,
+      confidence TEXT NOT NULL CHECK (confidence IN ('high', 'medium')),
+      score INTEGER NOT NULL DEFAULT 0,
+      reasons_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'applied', 'dismissed', 'stale')),
+      traffic_bytes INTEGER NOT NULL DEFAULT 0,
+      devices INTEGER NOT NULL DEFAULT 0,
+      first_seen_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      resolved_at TEXT,
+      resolved_rule_id INTEGER,
+      FOREIGN KEY (backend_id) REFERENCES backend_configs(id) ON DELETE CASCADE,
+      FOREIGN KEY (suggested_vendor_id) REFERENCES vendors(id),
+      FOREIGN KEY (resolved_rule_id) REFERENCES vendor_domain_rules(id) ON DELETE SET NULL
+    );
+  `,
+
+  // Audit log for every user or automation action taken on a suggestion.
+  VENDOR_SUGGESTION_ACTIONS: `
+    CREATE TABLE IF NOT EXISTS vendor_suggestion_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      suggestion_id INTEGER NOT NULL,
+      action TEXT NOT NULL CHECK (action IN ('apply', 'auto_apply', 'dismiss', 'refresh', 'stale')),
+      detail_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (suggestion_id) REFERENCES vendor_suggestions(id) ON DELETE CASCADE
+    );
+  `,
+
+  // Single-row automation scheduler state so the UI can show last/next runs
+  // after service restarts.
+  VENDOR_AUTOMATION_STATE: `
+    CREATE TABLE IF NOT EXISTS vendor_automation_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      status TEXT NOT NULL DEFAULT 'idle' CHECK (status IN ('idle', 'running', 'success', 'failed', 'disabled')),
+      last_run_at TEXT,
+      last_success_at TEXT,
+      next_run_at TEXT,
+      last_run_duration_ms INTEGER,
+      last_error TEXT
+    );
+  `,
+
   // Slim Uptime-style availability monitoring.
   MONITORS: `
     CREATE TABLE IF NOT EXISTS monitors (
@@ -831,6 +901,13 @@ export const INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_observability_hourly_backend_hour ON traffic_observability_hourly_stats(backend_id, hour);`,
   `CREATE INDEX IF NOT EXISTS idx_observability_daily_backend_day ON traffic_observability_daily_stats(backend_id, day);`,
   `CREATE INDEX IF NOT EXISTS idx_unresolved_domain_backend_day ON unresolved_domain_daily_stats(backend_id, day);`,
+
+  // Vendor automation indexes
+  `CREATE INDEX IF NOT EXISTS idx_vendor_evidence_subject ON vendor_evidence(backend_id, subject_type, subject);`,
+  `CREATE INDEX IF NOT EXISTS idx_vendor_evidence_expires ON vendor_evidence(expires_at);`,
+  `CREATE INDEX IF NOT EXISTS idx_vendor_suggestions_backend_status ON vendor_suggestions(backend_id, status);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_suggestions_open ON vendor_suggestions(backend_id, subject_type, subject) WHERE status = 'pending';`,
+  `CREATE INDEX IF NOT EXISTS idx_vendor_suggestion_actions_suggestion ON vendor_suggestion_actions(suggestion_id);`,
 
   // Availability monitoring indexes
   `CREATE INDEX IF NOT EXISTS idx_monitors_enabled ON monitors(enabled);`,
@@ -1046,6 +1123,10 @@ export function getAllSchemaStatements(): string[] {
     SCHEMA.TRAFFIC_OBSERVABILITY_DAILY_STATS,
     SCHEMA.UNRESOLVED_DOMAIN_DAILY_STATS,
     SCHEMA.VENDOR_CATALOG_STATE,
+    SCHEMA.VENDOR_EVIDENCE,
+    SCHEMA.VENDOR_SUGGESTIONS,
+    SCHEMA.VENDOR_SUGGESTION_ACTIONS,
+    SCHEMA.VENDOR_AUTOMATION_STATE,
     SCHEMA.MONITORS,
     SCHEMA.MONITOR_STATES,
     SCHEMA.MONITOR_MINUTE_STATS,

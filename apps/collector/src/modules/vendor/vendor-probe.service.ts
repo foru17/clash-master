@@ -48,7 +48,7 @@ export class VendorProbeService {
       this.probeHttp(domain),
       this.probeRdap(domain),
     ]);
-    const suggestions = this.suggest(domain, httpResult, rdapResult);
+    const suggestions = this.suggest(domain, dnsResult, httpResult, rdapResult);
     return {
       domain,
       normalizedDomain: domain,
@@ -129,15 +129,18 @@ export class VendorProbeService {
 
   private suggest(
     domain: string,
+    dns: VendorProbeResult['dns'],
     http: VendorProbeResult['http'],
     rdap: VendorProbeResult['rdap'],
   ): VendorProbeSuggestion[] {
     const vendors = this.db.getVendors().filter((vendor) => vendor.enabled && vendor.slug !== 'unknown');
-    const evidence = [domain, http.title, http.finalUrl, http.server, rdap.registrar, rdap.organization]
+    const evidence = [domain, ...dns.cnames, http.title, http.finalUrl, http.server, rdap.registrar, rdap.organization]
       .map(normalizeEvidence)
       .join(' ');
     const scored = vendors.map((vendor) => {
-      const tokens = [vendor.slug, vendor.name, ...vendor.rules.filter((rule) => rule.source === 'manual').map((rule) => rule.pattern)]
+      const tokens = [vendor.slug, vendor.name, ...vendor.rules
+        .filter((rule) => rule.source === 'manual' || rule.source === 'builtin')
+        .map((rule) => rule.pattern)]
         .flatMap((value) => value.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4));
       const matches = [...new Set(tokens.filter((token) => evidence.includes(token)))];
       if (!matches.length) return null;
