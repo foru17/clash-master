@@ -647,7 +647,7 @@
     "customVendorHint": "保存后会同时创建厂商和当前域名规则，之后可继续为该厂商添加其他规则。",
     "manualRuleMatchType": "匹配方式",
     "manualRulePriority": "优先级",
-    "manualRuleVendorLocked": "如需更换厂商，请删除后重新新增，避免一次操作跨厂商部分生效。",
+    "manualRuleVendorChangeHint": "编辑时更换厂商会将这组手动规则迁移到新厂商；如发生规则冲突，保存会失败。",
     "manualRuleEditorHint": "后缀匹配包含该域名及其所有子域；精确匹配只匹配完整域名。优先级范围为 1–1000。",
     "manualRuleMatch": {
       "suffix": "后缀（含子域）",

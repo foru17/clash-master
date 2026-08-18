@@ -19,6 +19,7 @@
 
 ### 修复
 
+- 修复手动规则编辑时厂商下拉框被锁定的问题；编辑规则现在可以迁移到其他厂商，后端在同一事务中清理原厂商规则并保留目标厂商已有规则，跨厂商冲突仍会回滚。
 - 将 Next.js 从 `16.2.7` 固定到 `16.1.7`，规避 16.2.x 在预渲染合成 `/_global-error` 路由时触发 `Invariant: Expected workStore to be initialized` 的构建失败。
 - 新增 `apps/web/globals.d.ts` 的 `*.css` 模块声明，兼容 Next 16.1 + TypeScript 6 的生产构建类型检查。
 - Web 生产构建已恢复通过（`next build --webpack`）。

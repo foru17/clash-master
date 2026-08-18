@@ -70,6 +70,7 @@ export interface VendorInput {
   color?: string;
   priority?: number;
   enabled?: boolean;
+  moveFromVendorId?: number;
   rules?: Array<{
     pattern: string;
     matchType?: 'exact' | 'suffix';
@@ -295,7 +296,11 @@ export class VendorRepository extends BaseRepository {
         input.enabled === false ? 0 : 1,
       );
       const id = Number(result.lastInsertRowid);
-      this.replaceRules(id, input.rules ?? []);
+      if (input.moveFromVendorId !== undefined) {
+        this.moveManualRules(input.moveFromVendorId, id, input.rules ?? []);
+      } else {
+        this.replaceRules(id, input.rules ?? []);
+      }
       return id;
     });
     const id = create();
@@ -307,6 +312,9 @@ export class VendorRepository extends BaseRepository {
     if (!existing) return undefined;
     if (existing.slug === 'unknown' && input.enabled === false) {
       throw new Error('Unknown vendor cannot be disabled');
+    }
+    if (input.moveFromVendorId !== undefined && !input.rules) {
+      throw new Error('Rules are required when moving manual rules');
     }
     const update = this.db.transaction(() => {
       this.db.prepare(`
@@ -320,18 +328,20 @@ export class VendorRepository extends BaseRepository {
         input.enabled === undefined ? (existing.enabled ? 1 : 0) : (input.enabled ? 1 : 0),
         id,
       );
-      if (input.rules) this.replaceRules(id, input.rules);
+      if (input.rules) {
+        if (input.moveFromVendorId !== undefined && input.moveFromVendorId !== id) {
+          this.moveManualRules(input.moveFromVendorId, id, input.rules);
+        } else {
+          this.replaceRules(id, input.rules);
+        }
+      }
     });
     update();
     return this.getVendors().find((vendor) => vendor.id === id);
   }
 
   private replaceRules(id: number, rules: NonNullable<VendorInput['rules']>): void {
-    const normalizedRules = rules.map((rule) => ({
-      pattern: normalizeDomain(rule.pattern),
-      matchType: rule.matchType ?? ('suffix' as const),
-      priority: rule.priority ?? 100,
-    })).filter((rule) => !!rule.pattern);
+    const normalizedRules = this.normalizeManualRules(rules);
     for (const rule of normalizedRules) {
       const conflict = this.db.prepare(`
         SELECT v.name
@@ -361,6 +371,56 @@ export class VendorRepository extends BaseRepository {
       if (seen.has(key)) continue;
       seen.add(key);
       insert.run(id, rule.pattern, rule.matchType, rule.priority);
+    }
+  }
+
+  private normalizeManualRules(rules: NonNullable<VendorInput['rules']>) {
+    return rules.map((rule) => ({
+      pattern: normalizeDomain(rule.pattern),
+      matchType: rule.matchType ?? ('suffix' as const),
+      priority: rule.priority ?? 100,
+    })).filter((rule) => !!rule.pattern);
+  }
+
+  private moveManualRules(sourceVendorId: number, targetVendorId: number, rules: NonNullable<VendorInput['rules']>): void {
+    if (sourceVendorId === targetVendorId) {
+      this.replaceRules(targetVendorId, rules);
+      return;
+    }
+    const source = this.db.prepare('SELECT id FROM vendors WHERE id = ?').get(sourceVendorId) as { id: number } | undefined;
+    if (!source) throw new Error('Source vendor not found');
+
+    const normalizedRules = this.normalizeManualRules(rules);
+    for (const rule of normalizedRules) {
+      const conflict = this.db.prepare(`
+        SELECT v.name
+        FROM vendor_domain_rules r
+        JOIN vendors v ON v.id = r.vendor_id
+        WHERE r.source = 'manual' AND r.vendor_id NOT IN (?, ?)
+          AND r.pattern = ? AND r.match_type = ?
+        LIMIT 1
+      `).get(targetVendorId, sourceVendorId, rule.pattern, rule.matchType) as { name: string } | undefined;
+      if (conflict) {
+        throw new Error(`Manual rule ${rule.pattern} already belongs to ${conflict.name}`);
+      }
+    }
+
+    this.db.prepare(`DELETE FROM vendor_domain_rules WHERE vendor_id = ? AND source = 'manual'`).run(sourceVendorId);
+    const insert = this.db.prepare(`
+      INSERT INTO vendor_domain_rules
+        (vendor_id, pattern, match_type, priority, source, confidence)
+      VALUES (?, ?, ?, ?, 'manual', 'high')
+      ON CONFLICT(vendor_id, pattern, match_type) DO UPDATE SET
+        priority = excluded.priority,
+        source = 'manual', source_key = NULL, source_revision = NULL,
+        confidence = 'high'
+    `);
+    const seen = new Set<string>();
+    for (const rule of normalizedRules) {
+      const key = `${rule.matchType}:${rule.pattern}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      insert.run(targetVendorId, rule.pattern, rule.matchType, rule.priority);
     }
   }
 

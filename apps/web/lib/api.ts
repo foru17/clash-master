@@ -662,11 +662,13 @@ export const api = {
 
   createVendor: (vendor: {
     slug: string; name: string; color?: string; priority?: number; enabled?: boolean;
+    moveFromVendorId?: number;
     rules?: Array<{ pattern: string; matchType: "exact" | "suffix"; priority?: number }>;
   }) => fetchJson<TrafficVendor>(`${API_BASE}/vendors`, 'POST', vendor),
 
   updateVendor: (id: number, vendor: {
     name?: string; color?: string; priority?: number; enabled?: boolean;
+    moveFromVendorId?: number;
     rules?: Array<{ pattern: string; matchType: "exact" | "suffix"; priority?: number }>;
   }) =>
     fetchJson<TrafficVendor>(`${API_BASE}/vendors/${id}`, 'PUT', vendor),

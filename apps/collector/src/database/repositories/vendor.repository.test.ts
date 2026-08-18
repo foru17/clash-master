@@ -163,6 +163,60 @@ describe('VendorRepository', () => {
     })).toThrow('already belongs');
   });
 
+  it('moves edited manual rules to another vendor atomically', () => {
+    const source = db.createVendor({
+      slug: 'source-vendor',
+      name: 'Source Vendor',
+      rules: [
+        { pattern: 'source.example', matchType: 'suffix', priority: 100 },
+        { pattern: 'second.example', matchType: 'exact', priority: 200 },
+      ],
+    });
+    const target = db.createVendor({
+      slug: 'target-vendor',
+      name: 'Target Vendor',
+      rules: [{ pattern: 'target.example', matchType: 'suffix', priority: 300 }],
+    });
+
+    db.updateVendor(target.id, {
+      moveFromVendorId: source.id,
+      rules: [
+        { pattern: 'edited.example', matchType: 'suffix', priority: 500 },
+        { pattern: 'target.example', matchType: 'suffix', priority: 600 },
+      ],
+    });
+
+    const vendors = db.getVendors();
+    expect(vendors.find((vendor) => vendor.id === source.id)?.rules.filter((rule) => rule.source === 'manual')).toEqual([]);
+    expect(vendors.find((vendor) => vendor.id === target.id)?.rules.filter((rule) => rule.source === 'manual')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ pattern: 'edited.example', matchType: 'suffix', priority: 500 }),
+        expect.objectContaining({ pattern: 'target.example', matchType: 'suffix', priority: 600 }),
+      ]),
+    );
+  });
+
+  it('does not move rules when the target has a conflicting third-party manual rule', () => {
+    const source = db.createVendor({
+      slug: 'move-source',
+      name: 'Move Source',
+      rules: [{ pattern: 'move.example', matchType: 'suffix' }],
+    });
+    const target = db.createVendor({ slug: 'move-target', name: 'Move Target' });
+    const conflict = db.createVendor({ slug: 'move-conflict', name: 'Move Conflict' });
+    const rawDb = (db as unknown as { db: Database.Database }).db;
+    rawDb.prepare(`
+      INSERT INTO vendor_domain_rules (vendor_id, pattern, match_type, priority, source, confidence)
+      VALUES (?, ?, ?, ?, 'manual', 'high')
+    `).run(conflict.id, 'move.example', 'suffix', 100);
+
+    expect(() => db.updateVendor(target.id, {
+      moveFromVendorId: source.id,
+      rules: [{ pattern: 'move.example', matchType: 'suffix' }],
+    })).toThrow(`already belongs to ${conflict.name}`);
+    expect(db.getVendors().find((vendor) => vendor.id === source.id)?.rules.some((rule) => rule.pattern === 'move.example')).toBe(true);
+  });
+
   it('recognizes high-confidence home domains and prefers business aliases over CDN infrastructure', () => {
     const timestampMs = Date.parse('2026-08-13T08:30:00.000Z');
     const base = {

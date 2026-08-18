@@ -648,7 +648,7 @@
     "customVendorHint": "Saving creates the vendor and this domain rule together. More rules can be added to the vendor later.",
     "manualRuleMatchType": "Match type",
     "manualRulePriority": "Priority",
-    "manualRuleVendorLocked": "To change the vendor, delete and recreate the rule so a single action cannot partially update two vendors.",
+    "manualRuleVendorChangeHint": "Changing the vendor moves this group of manual rules to the new vendor; saving fails if a rule conflicts.",
     "manualRuleEditorHint": "Suffix matches include the domain and all subdomains; exact matches only include the full hostname. Priority range: 1–1000.",
     "manualRuleMatch": {
       "suffix": "Suffix (with subdomains)",

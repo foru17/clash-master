@@ -61,6 +61,7 @@ interface ManualRuleRow {
 interface ManualRuleEditorState {
   ruleId: number | null;
   replaceExisting: boolean;
+  sourceVendorId: number | null;
   vendorId: number;
   customVendorName: string;
   customVendorColor: string;
@@ -180,6 +181,7 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
     setRuleEditor({
       ruleId: null,
       replaceExisting: false,
+      sourceVendorId: null,
       vendorId,
       customVendorName: "",
       customVendorColor: "#64748b",
@@ -205,6 +207,7 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
           name,
           color: draft.customVendorColor || "#64748b",
           priority: 50,
+          moveFromVendorId: draft.sourceVendorId ?? undefined,
           rules: normalizedRules,
         });
         return api.reclassifyVendorHistory(30);
@@ -219,6 +222,9 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
           priority: rule.priority,
         }));
       await api.updateVendor(vendor.id, {
+        moveFromVendorId: draft.sourceVendorId !== null && draft.sourceVendorId !== vendor.id
+          ? draft.sourceVendorId
+          : undefined,
         rules: draft.replaceExisting ? normalizedRules : [...existing, ...normalizedRules],
       });
       return api.reclassifyVendorHistory(30);
@@ -686,6 +692,7 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
                 onClick={() => setRuleEditor({
                   ruleId: null,
                   replaceExisting: false,
+                  sourceVendorId: null,
                   vendorId: 0,
                   customVendorName: "",
                   customVendorColor: "#64748b",
@@ -752,6 +759,7 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
                             onClick={() => setRuleEditor({
                               ruleId: group.rules[0]?.id ?? null,
                               replaceExisting: true,
+                              sourceVendorId: group.vendorId,
                               vendorId: group.vendorId,
                               customVendorName: "",
                               customVendorColor: "#64748b",
@@ -808,7 +816,6 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
               <span>{t("vendor")}</span>
               <select
                 value={ruleEditor.vendorId}
-                disabled={ruleEditor.ruleId !== null}
                 onChange={(event) => setRuleEditor({ ...ruleEditor, vendorId: Number(event.target.value) })}
                 className="h-10 w-full rounded-md border bg-background px-3"
               >
@@ -816,7 +823,7 @@ export function VendorContent({ activeBackendId, timeRange, onRefresh }: VendorC
                 <option value={-1}>{t("createCustomVendor")}</option>
                 {editableVendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
               </select>
-              {ruleEditor.ruleId !== null && <span className="block text-xs text-muted-foreground">{t("manualRuleVendorLocked")}</span>}
+              {ruleEditor.ruleId !== null && <span className="block text-xs text-muted-foreground">{t("manualRuleVendorChangeHint")}</span>}
             </label>
             {ruleEditor.vendorId === -1 && <div className="grid grid-cols-[minmax(0,1fr)_88px] gap-3 rounded-lg border bg-muted/20 p-3">
               <label className="block space-y-1.5 text-sm">
